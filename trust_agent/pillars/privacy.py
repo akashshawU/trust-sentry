@@ -105,6 +105,39 @@ _SALUTATION_PREFIXES = re.compile(
     re.IGNORECASE,
 )
 
+# Known organisation names / brand terms that spaCy sometimes misclassifies as PERSON.
+# Checked against the extracted span text (lowercase), so partial matches work.
+_ORGANISATION_WHITELIST: frozenset[str] = frozenset({
+    # Our own company
+    "uniqus", "uniqus consultech",
+    # Big tech / AI companies
+    "anthropic", "google", "microsoft", "openai", "meta", "amazon",
+    # Indian regulators & banks
+    "hdfc", "hdfc bank", "rbi", "sebi", "nsdl", "npci", "irdai", "pfrda",
+    # Middle-East regulators
+    "sama", "ndmo", "difc", "adgm", "cbuae",
+    # Global accounting / consulting firms
+    "deloitte", "pwc", "kpmg", "ey", "ernst", "mckinsey", "bcg", "bain",
+    "accenture", "capgemini", "infosys", "wipro", "tcs",
+})
+
+# Email-closing phrases that mark the start of a signature block.
+# Anything AT OR AFTER the first match position is treated as a signature.
+_SIGNATURE_MARKERS: tuple[str, ...] = (
+    "regards,", "sincerely,", "best regards,", "warm regards,",
+    "yours faithfully,", "kind regards,", "thanks,",
+    "thank you,", "best,", "cheers,",
+)
+
+# Common first names — single-word PERSON entities that ARE real people names
+# (used as a safety net so we don't over-suppress genuine names)
+_COMMON_FIRST_NAMES: frozenset[str] = frozenset({
+    "john", "jane", "robert", "michael", "sarah", "david",
+    "james", "mary", "william", "richard", "charles", "joseph",
+    "thomas", "christopher", "daniel", "matthew", "emily",
+    "jessica", "ashley", "amanda", "stephanie", "melissa",
+})
+
 
 def _is_professional_context_person(text: str, start: int, window: int = 45) -> bool:
     """Return True if the entity at `start` is preceded by a professional salutation.
@@ -113,7 +146,6 @@ def _is_professional_context_person(text: str, start: int, window: int = 45) -> 
     'Dear Mr.', 'To:', 'From:', 'CC:', 'Hi', 'Hello' etc.
     """
     prefix = text[max(0, start - window): start].strip()
-    # Check last word/phrase of prefix against salutation list
     return bool(_SALUTATION_PREFIXES.search(prefix))
 
 
@@ -126,18 +158,50 @@ def _is_personal_email(text: str, start: int, end: int) -> bool:
     return domain in _PERSONAL_EMAIL_DOMAINS
 
 
-def _should_redact(entity_type: str, text: str, start: int, end: int) -> bool:
-    """Decide whether a Presidio entity should be included in redaction."""
+def _should_redact(
+    entity_type: str,
+    text: str,
+    start: int,
+    end: int,
+    sig_start: int | None = None,
+) -> bool:
+    """Decide whether a Presidio entity should be included in redaction.
+
+    Args:
+        entity_type: Presidio entity label.
+        text:        Full document text.
+        start, end:  Entity span in `text`.
+        sig_start:   Character offset where the email signature begins (or None).
+                     Any entity whose span starts at or after this offset is kept.
+    """
     if entity_type in _ALWAYS_REDACT_TYPES:
         return True
     if entity_type in _NEVER_REDACT_TYPES:
         return False
+
+    # Entities inside the signature block are never redacted
+    if sig_start is not None and start >= sig_start:
+        return False
+
+    entity_text = text[start:end].strip().lower()
+
     if entity_type == "PERSON":
-        # Skip names that appear right after salutations (e.g. "Dear Mr. Iyer")
-        return not _is_professional_context_person(text, start)
+        # 1. Whitelisted organisation/brand names misclassified as PERSON
+        if any(term in entity_text for term in _ORGANISATION_WHITELIST):
+            return False
+        # 2. Professional salutation context (e.g. "Dear Mr. Iyer")
+        if _is_professional_context_person(text, start):
+            return False
+        # 3. Single-word tokens that are NOT common first names are likely
+        #    company names or role labels — skip them unless confidence is high.
+        words = entity_text.split()
+        if len(words) == 1 and entity_text not in _COMMON_FIRST_NAMES:
+            return False
+        return True
+
     if entity_type == "EMAIL_ADDRESS":
-        # Only redact personal/consumer email addresses
         return _is_personal_email(text, start, end)
+
     return True  # default: redact
 
 # ---------------------------------------------------------------------------
@@ -314,12 +378,23 @@ def analyze_and_anonymize(text: str, language: str = "en") -> PrivacyAnalysisRes
     # ── Presidio detection ───────────────────────────────────────────────────
     results = _analyzer.analyze(text=text, language=language)
 
+    # ── Locate signature block start (if any) ────────────────────────────────
+    # Any PII entity that begins inside the signature is kept — redacting
+    # "Warm regards, Priya Sharma" is a false positive in business emails.
+    _text_lower = text.lower()
+    _sig_start: int | None = None
+    for _marker in _SIGNATURE_MARKERS:
+        _pos = _text_lower.find(_marker)
+        if _pos != -1:
+            _sig_start = _pos if _sig_start is None else min(_sig_start, _pos)
+
     # ── Smart redaction filter — apply context-aware rules ───────────────────
     # Only pass entities that should genuinely be anonymized to the anonymizer.
-    # This prevents false positives like "Dear Mr. Iyer" or legitimate org names.
+    # Filtering happens HERE, before Presidio anonymizes, so the anonymized_text
+    # never contains spurious <PERSON> placeholders for org names or signatures.
     redact_results = [
         r for r in results
-        if _should_redact(r.entity_type, text, r.start, r.end)
+        if _should_redact(r.entity_type, text, r.start, r.end, sig_start=_sig_start)
     ]
     anonymized = _anonymizer.anonymize(text=text, analyzer_results=redact_results)
 
