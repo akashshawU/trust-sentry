@@ -11,7 +11,7 @@ SCENARIO_LIBRARY: dict[str, dict] = {
     "hdfc_audit_itgc": {
         "title":       "HDFC Bank ITGC Audit",
         "description": "Auditor reviews IT general controls for India's largest private bank",
-        "scenario_hint": "clean_audit",
+        "scenario_hint": "clean_knowledge",
         "agent_id":    "audit-agent",
         "caller_id":   "senior_auditor_001",
         "trigger_type":"manual",
@@ -93,7 +93,7 @@ SCENARIO_LIBRARY: dict[str, dict] = {
     "finance_report_legit": {
         "title":       "Finance Report — Clean",
         "description": "Finance Manager generating authorised board report",
-        "scenario_hint": "clean_finance",
+        "scenario_hint": "",
         "agent_id":    "finance-agent",
         "caller_id":   "finance_manager_001",
         "trigger_type":"manual",
@@ -228,7 +228,7 @@ SCENARIO_LIBRARY: dict[str, dict] = {
     "legitimate_hr_report": {
         "title":       "Legitimate HR Summary",
         "description": "HR manager generating permitted performance summary",
-        "scenario_hint": "hr_summary",
+        "scenario_hint": "pii_leak",
         "agent_id":    "hr-agent",
         "caller_id":   "hr_manager_001",
         "trigger_type":"manual",
@@ -384,6 +384,7 @@ SCENARIO_LIBRARY: dict[str, dict] = {
     "gcc_data_transfer": {
         "title":       "GCC Cross-Border Data Transfer",
         "description": "Moving personal data across UAE, KSA, Qatar without compliance",
+        "scenario_hint": "sama_violation",
         "agent_id":    "data-agent",
         "caller_id":   "compliance_manager_001",
         "trigger_type":"manual",
@@ -450,7 +451,7 @@ SCENARIO_LIBRARY: dict[str, dict] = {
         "expected_cp1":   "ALLOW",
         "expected_cp2":   "BLOCK",
         "sector":         "Cybersecurity",
-        "scenario_hint":  "scope_creep",
+        "scenario_hint":  "bulk_export",
         "learning":       "Agent tried to exceed its approved scope during execution",
     },
 
@@ -459,6 +460,7 @@ SCENARIO_LIBRARY: dict[str, dict] = {
     "iso_42001_research": {
         "title":       "ISO 42001 Research",
         "description": "Analyst researching AI governance frameworks — clean",
+        "scenario_hint": "clean_knowledge",
         "agent_id":    "audit-agent",
         "caller_id":   "analyst-001",
         "trigger_type":"manual",

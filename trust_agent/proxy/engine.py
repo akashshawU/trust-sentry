@@ -1400,6 +1400,18 @@ class AgentProxy:
         # they are never redacted and should not trigger REDACT decisions.
         _MIN_PII_CONFIDENCE = 0.6   # require reasonable confidence
 
+        # Known organisation and signature names often misclassified as PERSON
+        # by Presidio — whitelist them to prevent false-positive redaction.
+        _PERSON_WHITELIST = {
+            "uniqus", "uniqus consultech",
+            "anthropic", "google", "microsoft", "openai",
+            "hdfc", "hdfc bank", "rbi", "sebi", "nsdl", "npci",
+            "sama", "ndmo", "difc", "adgm",
+            "regards", "sincerely", "best regards",
+            "warm regards", "yours faithfully",
+            "yours sincerely", "kind regards",
+        }
+
         pii_result   = analyze_and_anonymize(output)
         pii_found    = [
             e for e in pii_result.entities_found
@@ -1407,6 +1419,11 @@ class AgentProxy:
             and float(e.get("score", 0)) >= _MIN_PII_CONFIDENCE
             # PERSON entities require higher confidence to avoid false positives
             and not (e.get("entity_type") == "PERSON" and float(e.get("score", 0)) < 0.80)
+            # Never redact whitelisted organisation/signature names misclassified as PERSON
+            and not (
+                e.get("entity_type") == "PERSON"
+                and output[e.get("start", 0):e.get("end", 0)].lower().strip() in _PERSON_WHITELIST
+            )
         ]
         pii_count    = len(pii_found)
         critical_pii = [
@@ -1450,9 +1467,25 @@ class AgentProxy:
             fw: v_list for fw, v_list in comp_violations.items() if v_list
         }
         compliance_issues = list(explicit_violations.keys())[:6]
-        # Compliance is only a hard BLOCK when score is critically low AND
-        # there are explicit violation phrases (not just keyword triggers).
-        compliance_violated = comp_score < 30 and bool(explicit_violations)
+        # Direct phrase check — certain phrases always constitute a GDPR BLOCK
+        # regardless of what the AI compliance scorer returns.
+        _GDPR_VIOLATION_PHRASES = [
+            r"retain.*indefinitely", r"retain.*forever", r"no right to erasure",
+            r"waive.*right", r"sell.*data", r"sell.*personal",
+            r"retain.*15 years", r"no.*appeal.*mechanism",
+            r"automated.*final", r"no human review",
+        ]
+        _output_lower_gdpr = output.lower()
+        _direct_gdpr = any(
+            re.search(p, _output_lower_gdpr) for p in _GDPR_VIOLATION_PHRASES
+        )
+        # Compliance is a hard BLOCK when:
+        #   (a) output directly contains a GDPR-violating phrase, OR
+        #   (b) AI compliance score is critically low AND explicit violations found
+        compliance_violated = (
+            _direct_gdpr
+            or (comp_score < 30 and bool(explicit_violations))
+        )
 
         # ── 4. Over-disclosure detection ──────────────────────────────────
         _overdisclosure_kws = {

@@ -1926,8 +1926,8 @@ const SCENARIOS = {
 const SCENARIO_META = [
   { key:'iso_42001_research',        n:1,  name:'ISO 42001 Research',        desc:'Analyst researches AI governance',    badge:'ALLOW',    cls:'sc-green',  borderCls:'sc-border-green',  sector:'Clean Cases'        },
   { key:'payroll_access_intern',     n:2,  name:'Intern Payroll Request',    desc:'Intern hits payroll guard',           badge:'BLOCK',    cls:'sc-red',    borderCls:'sc-border-red',    sector:'HR'                 },
-  { key:'legitimate_hr_report',      n:3,  name:'HR Performance Report',     desc:'HR manager — PII in output',          badge:'REDACT',   cls:'sc-amber',  borderCls:'sc-border-amber',  sector:'HR'                 },
-  { key:'gdpr_non_compliant_clause', n:4,  name:'GDPR Non-Compliant Draft',  desc:'Legal draft waives data rights',      badge:'BLOCK',    cls:'sc-red',    borderCls:'sc-border-red',    sector:'Legal'              },
+  { key:'legitimate_hr_report',      n:3,  name:'HR Performance Report',     desc:'HR manager — PII in output',          badge:'ALLOW', badge2:'REDACT', cls:'sc-green',  borderCls:'sc-border-green',  sector:'HR'                 },
+  { key:'gdpr_non_compliant_clause', n:4,  name:'GDPR Non-Compliant Draft',  desc:'Legal draft waives data rights',      badge:'ALLOW', badge2:'BLOCK',  cls:'sc-red',    borderCls:'sc-border-red',    sector:'Legal'              },
   { key:'loan_decision_bias',        n:5,  name:'Biased Loan Decision',      desc:'Age + caste discrimination',          badge:'BLOCK',    cls:'sc-red',    borderCls:'sc-border-red',    sector:'Financial Services' },
   { key:'prompt_injection_formal',   n:6,  name:'Formal Injection Attack',   desc:'Social engineering — AI catches this',badge:'BLOCK',    cls:'sc-red',    borderCls:'sc-border-red',    sector:'Cybersecurity'      },
   { key:'autonomous_bulk_2am',       n:7,  name:'Autonomous Bulk Export',    desc:'47K records scheduled export',        badge:'BLOCK',    cls:'sc-red',    borderCls:'sc-border-red',    sector:'Cybersecurity'      },
@@ -1947,6 +1947,7 @@ let _allSessions = [];
 let _sectorFilter = 'ALL';
 let _demoMode = sessionStorage.getItem('demoMode') === '1';
 let _remoteScenarios = null;    // fetched from /proxy/scenarios on boot
+let _scenarioJustClicked = false; // FIX 1: tracks whether px-hint was set by a fresh scenario click
 
 // ═══════════════════════════════════════════ SECTOR FILTER
 function setSectorFilter(sector) {
@@ -1977,7 +1978,9 @@ function buildScenarios() {
       <div class="sc-card-name">${s.name}</div>
       <div class="sc-card-desc">${s.desc}</div>
       <div class="sc-card-bottom">
-        <span class="sc-badge ${s.cls}">${s.badge}</span>
+        ${s.badge2
+          ? `<span class="sc-badge sc-green">${s.badge}</span><span style="font-size:.7rem;color:var(--u-muted);margin:0 2px;">&#8594;</span><span class="sc-badge ${s.cls}">${s.badge2}</span>`
+          : `<span class="sc-badge ${s.cls}">${s.badge}</span>`}
         <span class="sc-sector-label">${s.sector}</span>
       </div>
     </div>
@@ -2024,6 +2027,7 @@ function loadScenario(key) {
   // Trigger live hints
   onCallerInput();
   onTaskInput();
+  _scenarioJustClicked = true; // FIX 1: hint was just loaded from a scenario card
 }
 
 // ═══════════════════════════════════════════ LIVE FIELD VALIDATION
@@ -2140,6 +2144,12 @@ function detectActions(task, agentType) {
 
 function detectScenarioHint(task) {
   const t = (task || '').toLowerCase();
+  // FIX 2: knowledge/research requests must be detected FIRST to avoid dirty-pattern false-positives
+  if (/\b(iso\s*\d+|nist|owasp|gdpr summary|dpdp summary|explain|summaris|summariz|what is|overview of|clause|requirement|tell me|how does|describe)\b/.test(t)) {
+    if (!/payroll|salary|inject|bypass|caste|career gap|non.english|bulk export|without consent|sell data/.test(t)) {
+      return 'clean_knowledge';
+    }
+  }
   if (/ignore|bypass|override.*instruction|disregard|jailbreak|dump.*(database|system)/.test(t)) return 'injection';
   if (/backup system|dr endpoint|disaster recovery|unpatched vulnerabilit|server inventor/.test(t)) return 'ransomware';
   if (/loan application|loan approval|scheduled caste|caste|above 55|age filter|reject applicant|automated rejection/.test(t)) return 'loan_bias';
@@ -2186,6 +2196,12 @@ function addProxyAction(action='data_read', resource='', target='', record_count
 function _buildPayload() {
   const task      = document.getElementById('px-task').value.trim();
   const agentType = document.getElementById('px-agent').value;
+
+  // FIX 1: if user typed manually (not via scenario card), clear stale hint so it cannot bleed
+  if (!_scenarioJustClicked) {
+    document.getElementById('px-hint').value = '';
+  }
+  _scenarioJustClicked = false;
 
   // Use scenario-loaded values from hidden fields if present; else auto-detect
   const hiddenTrigger = document.getElementById('px-trigger').value;
@@ -3256,6 +3272,11 @@ async function safeParseResponse(response) {
 // ═══════════════════════════════════════════ BOOT
 initDemoMode();
 buildScenarios();
+// FIX 1: clear scenario hint whenever user manually edits the task textarea
+document.getElementById('px-task').addEventListener('input', function() {
+  _scenarioJustClicked = false;
+  document.getElementById('px-hint').value = '';
+});
 updateHeroStats();
 loadMiniSessions();
 loadDetailedLog();

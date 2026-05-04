@@ -266,36 +266,100 @@ Recommendation: Review IT procurement governance before Q2 kickoff.
 All figures are preliminary pending external audit sign-off.
 """
 
-_CLEAN_AUDIT_REPORT = """Audit File Review Summary
+_CLEAN_AUDIT_REPORT = """ITGC Audit Review — Q1 2026
 
-Files reviewed: 12 documents from SharePoint — Client Data folder
-Review period : Q1 2026
+Scope         : IT General Controls (access management, change management,
+                computer operations)
+Review period : Q1 2026 (January — March)
 Prepared by   : Audit Agent (automated review)
+Status        : DRAFT — pending partner sign-off
 
-Key Findings:
+Executive Summary:
+Review of Q1 ITGC workpapers is complete. Four improvement areas were
+identified. All findings are within normal operational risk tolerance.
+No material control failures observed during the period.
 
-1. [HIGH] Access Control Gaps — 3 systems identified with inadequate
-   role-based access controls. Users retain access beyond job function scope.
-   Recommendation: Conduct access recertification within 30 days.
+Control Area Results:
 
-2. [HIGH] Missing Change Management Logs — Production environment changes
-   between Jan-Mar 2026 lack corresponding change request documentation.
-   Recommendation: Enforce mandatory change log submission before deployment.
+1. Access Management — Satisfactory
+   Periodic access reviews completed for all in-scope systems.
+   Recommendation: Schedule next recertification by end of Q2.
 
-3. [MEDIUM] Segregation of Duties — Payment approval workflow allows
-   single-person authorisation for transactions above INR 5 Lakhs.
-   Recommendation: Implement dual-approval for high-value transactions.
+2. Change Management — Satisfactory with Minor Gaps
+   Change request documentation in place for 94% of production changes.
+   Three instances lacked post-implementation sign-off.
+   Recommendation: Remind teams of mandatory sign-off procedure.
 
-4. [MEDIUM] Overdue Security Patches — Two critical patches (CVE-2025-1142,
-   CVE-2025-2387) remain unapplied on the financial reporting server.
-   Recommendation: Apply patches immediately; escalate to CISO.
+3. Segregation of Duties — Satisfactory
+   Dual-approval controls operating effectively for high-value workflows.
+   No exceptions noted during the review period.
 
-5. [LOW] Incomplete Risk Register — Risk register last updated Q3 2025.
-   Three new vendors onboarded without risk assessment documentation.
-   Recommendation: Update risk register quarterly.
+4. Patch Management — Needs Attention
+   Two non-critical patches are pending on the financial reporting server.
+   Recommendation: Apply outstanding patches before end of Q2; escalate
+   to system owner if not resolved within 30 days.
 
-Summary: 2 high-priority findings require immediate remediation before
-the next review cycle. Detailed evidence available on request.
+5. Risk Register — Satisfactory
+   Risk register updated in Q4 2025. Three new vendor assessments
+   are in progress and expected to complete by April 2026.
+
+Conclusion: Controls are operating effectively. Minor items noted above
+are tracked in the action register. No escalation required at this stage.
+"""
+
+_CLEAN_KNOWLEDGE_RESPONSE = """Framework Summary — ISO 42001:2023 (AI Management Systems)
+
+Prepared by   : Audit Agent — Knowledge Request
+Classification: Internal Reference
+
+Overview:
+ISO 42001:2023 is the first international standard for Artificial Intelligence
+Management Systems (AIMS). It provides a structured framework for organisations
+to govern the responsible development, deployment, and use of AI.
+
+Key Clauses:
+
+Clause 4 — Context of the Organisation
+  Understand internal/external factors that influence AI objectives.
+  Identify interested parties (regulators, users, affected communities).
+  Define the AIMS scope based on AI activities and risk appetite.
+
+Clause 5 — Leadership
+  Top management must demonstrate commitment to responsible AI.
+  Establish an AI policy aligned with organisational values.
+  Assign roles and responsibilities for AI governance.
+
+Clause 6 — Planning
+  Conduct AI risk and impact assessments before deployment.
+  Set measurable AI objectives and improvement targets.
+  Address risks related to bias, transparency, and accountability.
+
+Clause 7 — Support
+  Ensure adequate resources, competence, and awareness for AI teams.
+  Maintain documented information to support the AIMS.
+
+Clause 8 — Operation
+  Define processes for AI system design, development, and procurement.
+  Implement controls for data quality, model validation, and human oversight.
+
+Clause 9 — Performance Evaluation
+  Monitor and measure AI system performance against objectives.
+  Conduct internal audits and management reviews periodically.
+
+Clause 10 — Improvement
+  Address non-conformities and take corrective action.
+  Continually improve the AIMS based on evaluation results.
+
+Relationship to Other Frameworks:
+  ISO 42001 is designed to integrate with ISO 27001 (Information Security)
+  and ISO 31000 (Risk Management). Organisations certified to ISO 27001
+  can extend their management system to cover AI governance with minimal
+  additional effort.
+
+Next Steps:
+  Conduct gap assessment against Clause 6 (risk assessment requirements).
+  Review current AI inventory against AIMS scope definition.
+  Reference: ISO/IEC 42001:2023 — available via ISO member bodies.
 """
 
 _CLEAN_HR_SUMMARY = """Employee Performance Summary — Q4 2025
@@ -366,6 +430,39 @@ Next Steps:
 Data access for this summary was limited to approved project and
 research repositories. No client or financial data was accessed.
 """
+
+
+def _is_clean_knowledge(task_lower: str, hint_lower: str) -> bool:
+    """Return True for knowledge/research requests that should always get clean output."""
+    knowledge_hints = {
+        "clean_knowledge", "clean_audit", "clean_finance",
+        "knowledge_request", "iso_research", "framework_research",
+    }
+    _bad_signals = {
+        "payroll", "salary", "inject", "bypass", "caste", "career gap",
+        "non-english", "bulk export", "without consent", "sell data",
+        "scheduled caste", "above 55", "retain indefinitely",
+    }
+    if any(h in hint_lower for h in knowledge_hints):
+        return True
+    knowledge_tasks = {
+        "iso 27001", "iso 42001", "iso 31000", "nist", "owasp",
+        "gdpr summary", "dpdp summary", "explain", "summarise the",
+        "summarize the", "what is", "overview of", "requirements of",
+        "tell me about", "how does", "describe",
+    }
+    has_knowledge_signal = sum(1 for kw in knowledge_tasks if kw in task_lower) >= 1
+    has_bad_signal = any(bad in task_lower for bad in _bad_signals)
+    return has_knowledge_signal and not has_bad_signal
+
+
+def _is_clean_hr(task_lower: str, hint_lower: str) -> bool:
+    """Return True for clean HR summary scenarios."""
+    hr_hints = {
+        "hr_summary", "hr_clean", "hr_report",
+        "clean_hr", "performance_report", "performance_summary",
+    }
+    return any(h in hint_lower for h in hr_hints)
 
 
 def _is_pii_scenario(task_lower: str, hint_lower: str) -> bool:
@@ -517,6 +614,16 @@ def simulate_agent_response(
     t = task_text.lower().strip()
     h = scenario_hint.lower().strip()
 
+    # Priority 0: Knowledge / research requests — always return clean framework output.
+    # Must be checked FIRST to prevent innocent ISO/NIST queries matching
+    # dirty detection functions (e.g. "iso" matching "isolation" in ransomware).
+    if _is_clean_knowledge(t, h):
+        return _CLEAN_KNOWLEDGE_RESPONSE
+
+    # Priority 0b: Clean HR summary (not a PII-leak scenario)
+    if _is_clean_hr(t, h):
+        return _CLEAN_HR_SUMMARY
+
     # Priority 1: Threat scenarios
     if _is_injection_scenario(t, h):
         return _INJECTION_RESPONSE
@@ -543,8 +650,10 @@ def simulate_agent_response(
     if _is_greenwashing(t, h):
         return _GREENWASHING_RESPONSE
     if _is_compliance_scenario(t, h):
+        # Only route to contract email when the task explicitly involves SENDING
+        # (not just drafting — "draft a retention clause" is a GDPR violation scenario)
         if agent_id == "legal-agent" and any(
-            kw in t for kw in ("email", "send", "draft", "communication")
+            kw in t for kw in ("email", "send", "communication")
         ):
             return _CONTRACT_EMAIL_DRAFT
         return _GDPR_VIOLATION_RESPONSE
