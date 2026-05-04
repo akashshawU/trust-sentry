@@ -1,5 +1,6 @@
 """Pillar 3: Access Control — enterprise RBAC with 30+ roles, resource sensitivity, and action risk."""
 
+import re
 from dataclasses import dataclass, field
 from pydantic import BaseModel
 
@@ -34,6 +35,28 @@ ROLE_REGISTRY: dict[str, dict] = {
     "director": {
         "permissions": ["read", "write", "export", "audit", "approve"],
         "risk_level": "low", "trust_boost": 11, "seniority": "director",
+    },
+    # ── Senior Manager (generic) ──────────────────────────────────────────────
+    "senior_manager": {
+        "permissions": ["read", "write", "export", "audit"],
+        "risk_level": "low", "trust_boost": 9, "seniority": "senior",
+    },
+    # ── Generic Manager / Analyst / External ─────────────────────────────────
+    "manager": {
+        "permissions": ["read", "write", "export"],
+        "risk_level": "low", "trust_boost": 7, "seniority": "manager",
+    },
+    "analyst": {
+        "permissions": ["read", "export"],
+        "risk_level": "low", "trust_boost": 5, "seniority": "analyst",
+    },
+    "client": {
+        "permissions": [],
+        "risk_level": "high", "trust_boost": -15, "seniority": "external",
+    },
+    "vendor": {
+        "permissions": [],
+        "risk_level": "high", "trust_boost": -15, "seniority": "external",
     },
     # ── Managers ─────────────────────────────────────────────────────────────
     "finance_manager": {
@@ -216,64 +239,196 @@ ACTION_RISK_MAP: dict[str, dict] = {
 
 
 # ---------------------------------------------------------------------------
-# Role detection — infer role key from caller_id string
+# Foundation 1 — Universal Role Detection
 # ---------------------------------------------------------------------------
 
-_ROLE_KEYWORDS: list[tuple[str, str]] = [
-    # Most specific first to avoid false matches
-    ("system_admin",     "system_admin"),
-    ("sysadmin",         "system_admin"),
-    ("senior_developer", "senior_developer"),
-    ("senior_dev",       "senior_developer"),
-    ("data_engineer",    "data_engineer"),
-    ("data_analyst",     "data_analyst"),
-    ("financial_analyst","financial_analyst"),
-    ("finance_analyst",  "financial_analyst"),
-    ("risk_analyst",     "risk_analyst"),
-    ("compliance_analyst","compliance_analyst"),
-    ("lead_analyst",     "lead_analyst"),
-    ("senior_analyst",   "senior_analyst"),
-    ("compliance_manager","compliance_manager"),
-    ("finance_manager",  "finance_manager"),
-    ("risk_manager",     "risk_manager"),
-    ("it_manager",       "it_manager"),
-    ("hr_manager",       "hr_manager"),
-    ("operations_manager","operations_manager"),
-    ("senior_consultant","senior_consultant"),
-    ("junior_consultant","junior_consultant"),
-    ("external_auditor", "external_auditor"),
-    ("external_user",    "external_user"),
-    ("external",         "external_user"),
-    ("consultant",       "consultant"),
-    ("developer",        "developer"),
-    ("engineer",         "data_engineer"),
-    ("associate",        "associate"),
-    ("auditor",          "auditor"),
-    ("analyst",          "financial_analyst"),
-    ("partner",          "partner"),
-    ("director",         "director"),
-    ("ceo",              "ceo"),
-    ("cfo",              "cfo"),
-    ("cto",              "cto"),
-    ("coo",              "coo"),
-    ("intern",           "intern"),
-    ("admin",            "admin"),
-    ("manager",          "operations_manager"),
-    ("guest",            "guest"),
-    ("unknown",          "unknown"),
-    ("user",             "user"),
+def normalise_caller_id(caller_id: str) -> str:
+    """
+    Convert a raw caller_id into a clean, space-separated string for matching.
+    Handles underscores, hyphens, trailing numbers, location prefixes, etc.
+    """
+    text = caller_id.lower().strip()
+    # Replace separators with space
+    text = re.sub(r'[-_.]', ' ', text)
+    # Remove trailing numbers (e.g. "auditor 001" → "auditor")
+    text = re.sub(r'\s+\d+\s*$', '', text).strip()
+    # Remove leading numbers
+    text = re.sub(r'^\d+\s+', '', text).strip()
+    # Remove common location / org prefixes that should not affect role matching
+    _DEPT_PREFIXES = [
+        'mumbai', 'delhi', 'dubai', 'riyadh', 'london', 'india',
+        'uae', 'ksa', 'gcc', 'apac', 'north', 'south', 'east', 'west',
+        'regional', 'global', 'group', 'head', 'office', 'team',
+    ]
+    for prefix in _DEPT_PREFIXES:
+        text = text.replace(prefix + ' ', '').strip()
+    return text
+
+
+# Role synonym map — ordered (highest privilege first) for deterministic matching.
+# Synonyms are checked as substrings against the normalised caller_id.
+ROLE_SYNONYMS: dict[str, list[str]] = {
+    "ceo": [
+        "ceo", "chief executive", "chief exec", "managing director",
+        "md", "president", "group ceo",
+    ],
+    "cfo": [
+        "cfo", "chief financial", "chief finance", "finance director",
+        "financial director", "fd", "group cfo", "vp finance",
+        "head of finance",
+    ],
+    "cto": [
+        "cto", "chief technology", "chief technical", "tech director",
+        "technology director", "vp tech", "vp engineering",
+        "head of tech", "head of engineering",
+    ],
+    "partner": [
+        "partner", "managing partner", "senior partner", "equity partner",
+        "engagement partner", "service partner",
+    ],
+    "director": [
+        "director", "associate director", "executive director", "group director",
+        "hr director", "finance director", "it director", "compliance director",
+        "risk director", "audit director", "legal director", "ops director",
+    ],
+    "senior_manager": [
+        "senior manager", "sr manager", "snr manager", "seniormanager",
+    ],
+    "finance_manager": [
+        "finance manager", "financial manager", "finance mgr",
+        "accounts manager", "fp&a manager", "treasury manager",
+        "controller", "financial controller", "head of accounts",
+    ],
+    "hr_manager": [
+        "hr manager", "human resources manager", "people manager", "hr mgr",
+        "head of hr", "head of people", "people operations", "hrbp",
+        "hr business partner",
+    ],
+    "it_manager": [
+        "it manager", "infrastructure manager", "systems manager", "it mgr",
+        "head of it", "it lead", "technology manager",
+    ],
+    "compliance_manager": [
+        "compliance manager", "compliance mgr", "head of compliance",
+        "regulatory manager", "compliance officer", "chief compliance",
+    ],
+    "risk_manager": [
+        "risk manager", "risk mgr", "head of risk", "risk officer",
+        "chief risk", "cro",
+    ],
+    "manager": [
+        "manager", "mgr", "team lead", "team leader", "section head",
+        "unit head", "group manager", "line manager", "account manager",
+    ],
+    "auditor": [
+        "auditor", "audit", "internal auditor", "senior auditor",
+        "lead auditor", "audit manager", "audit lead", "audit associate",
+        "it auditor", "financial auditor", "sox auditor", "itgc auditor",
+        "external auditor", "audit supervisor", "audit senior",
+    ],
+    "senior_analyst": [
+        "senior analyst", "sr analyst", "snr analyst", "lead analyst",
+        "principal analyst", "staff analyst", "specialist analyst",
+        "analyst ii", "analyst iii", "analyst senior",
+    ],
+    "analyst": [
+        "analyst", "associate analyst", "junior analyst", "analyst i",
+        "research analyst", "data analyst", "business analyst", "ba ",
+        "financial analyst", "risk analyst",
+    ],
+    "senior_consultant": [
+        "senior consultant", "sr consultant", "principal consultant",
+        "lead consultant", "consultant ii", "consultant iii",
+        "managing consultant",
+    ],
+    "consultant": [
+        "consultant", "associate consultant", "junior consultant",
+        "advisor", "adviser", "specialist", "associate",
+    ],
+    "developer": [
+        "developer", "dev ", "engineer", "software engineer", "swe",
+        "programmer", "coder", "architect", "devops", "sre",
+        "data engineer", "ml engineer", "ai engineer",
+    ],
+    "admin": [
+        "admin", "administrator", "system admin", "sysadmin",
+        "it admin", "network admin", "database admin", "dba",
+        "super user", "superuser", "root user",
+    ],
+    "intern": [
+        "intern", "trainee", "apprentice", "graduate trainee", "fresher",
+        "probationer", "placement student", "summer intern", "winter intern",
+    ],
+    "client": [
+        "client", "customer", "external client", "client user",
+        "guest client", "client access",
+    ],
+    "vendor": [
+        "vendor", "supplier", "contractor", "third party", "third-party",
+        "external contractor", "outsource",
+    ],
+    "guest": [
+        "guest", "visitor", "temporary", "temp user", "demo user",
+        "trial user", "readonly",
+    ],
+    "unknown": [
+        "unknown", "anonymous", "anon", "unidentified", "undefined",
+        "null", "none", "n/a", "test",
+    ],
+}
+
+# Detection order: highest privilege first — first match wins.
+# CRITICAL: "director" MUST precede "cto" because "cto" is a literal
+# substring of "dire-cto-r". Checking director first prevents the trap.
+_ROLE_DETECTION_ORDER: list[str] = [
+    "ceo", "cfo", "partner", "director", "cto",   # director before cto
+    "senior_manager",
+    "finance_manager", "hr_manager", "it_manager",
+    "compliance_manager", "risk_manager",
+    "manager",
+    "auditor",
+    "senior_analyst", "analyst",
+    "senior_consultant", "consultant",
+    "developer", "admin",
+    "intern", "client", "vendor", "guest", "unknown",
+]
+
+# Professional-context fallback — if none of the above match but a seniority
+# indicator is present, default to analyst-level rather than unknown.
+_PROFESSIONAL_INDICATORS: list[str] = [
+    "officer", "head ", "chief ", "vp ", "vice president",
+    "lead ", "principal", "staff ", "associate",
 ]
 
 
 def detect_role(caller_id: str) -> str:
     """
-    Infer the most specific matching role key from a caller_id string.
-    Falls back to 'unknown' if no keyword matches.
+    Infer caller role from a caller_id string.
+
+    Algorithm:
+    1. Normalise (separators → spaces, strip trailing digits/location prefixes)
+    2. Check if normalised text is itself a role key in ROLE_REGISTRY
+    3. Match ROLE_SYNONYMS from highest privilege to lowest (first match wins)
+    4. Fallback to 'analyst' if any professional indicator is present
+    5. Return 'unknown' if nothing matches
     """
-    cid = caller_id.lower().replace("-", "_")
-    for keyword, role_key in _ROLE_KEYWORDS:
-        if keyword in cid:
-            return role_key
+    normalised = normalise_caller_id(caller_id)
+
+    # Exact role-key match after normalisation
+    if normalised in ROLE_REGISTRY:
+        return normalised
+
+    # Synonym matching — highest privilege first
+    for role in _ROLE_DETECTION_ORDER:
+        for synonym in ROLE_SYNONYMS.get(role, []):
+            if synonym in normalised:
+                return role
+
+    # Professional-context fallback
+    for indicator in _PROFESSIONAL_INDICATORS:
+        if indicator in normalised:
+            return "analyst"
+
     return "unknown"
 
 
@@ -340,6 +495,17 @@ def check_access(caller_id: str, resource: str, action: str) -> AccessResult:
     Returns an :class:`AccessResult` with 0-100 access score.
     """
     role_key = detect_role(caller_id)
+    # Safe fallback: if detect_role returns a key not in ROLE_REGISTRY, map to nearest
+    _ROLE_FALLBACK: dict[str, str] = {
+        "senior_manager": "operations_manager",
+        "manager":        "operations_manager",
+        "analyst":        "financial_analyst",
+        "client":         "external_user",
+        "vendor":         "external_user",
+        "ciso":           "cto",
+    }
+    if role_key not in ROLE_REGISTRY:
+        role_key = _ROLE_FALLBACK.get(role_key, "unknown")
     policy   = ROLE_REGISTRY[role_key]
 
     action_lc    = action.lower()
@@ -453,6 +619,71 @@ def check_access(caller_id: str, resource: str, action: str) -> AccessResult:
         recommendation=recommendation,
         trust_level=trust_level,
     )
+
+
+# ---------------------------------------------------------------------------
+# Foundation 5 — Resource Synonym Detection
+# ---------------------------------------------------------------------------
+
+RESOURCE_SYNONYMS: dict[str, list[str]] = {
+    "payroll-data": [
+        "payroll", "salary", "salaries", "compensation", "remuneration",
+        "pay slip", "payslip", "earnings", "wage", "wages", "pay record",
+        "salary band", "salary range", "total compensation", "ctc",
+        "cost to company", "pay grade", "incentive", "bonus record",
+    ],
+    "financial-data": [
+        "financial", "finance", "revenue", "profit", "loss", "p&l", "pnl",
+        "budget", "forecast", "ebitda", "balance sheet", "income statement",
+        "cash flow", "accounts", "ledger", "gl ", "general ledger",
+        "financial statement", "financials", "f&a", "financial records",
+    ],
+    "employee-records": [
+        "employee", "staff", "personnel", "hr data", "hr records",
+        "people data", "workforce data", "headcount", "employee file",
+        "personnel file", "people records",
+    ],
+    "client-records": [
+        "client", "customer", "account", "client data", "customer data",
+        "client information", "crm", "client records", "customer records",
+        "account data", "engagement data",
+    ],
+    "audit-logs": [
+        "audit", "audit log", "audit trail", "workpaper", "work paper",
+        "audit workpaper", "itgc", "sox workpaper", "audit file",
+        "control evidence", "audit evidence", "findings", "audit findings",
+    ],
+    "system-config": [
+        "system config", "configuration", "system settings", "settings",
+        "api key", "credentials", "password", "secret", "token",
+        "access key", "private key", "connection string", "endpoint",
+        "infrastructure", "server config",
+    ],
+    "patient-records": [
+        "patient", "medical record", "health record", "diagnosis",
+        "prescription", "clinical data", "ehr", "emr", "phi",
+        "protected health", "medical history",
+    ],
+    "contracts": [
+        "contract", "agreement", "engagement letter", "sow",
+        "statement of work", "nda", "non disclosure", "msa",
+        "master service", "addendum", "amendment", "clause", "legal doc",
+    ],
+}
+
+
+def detect_resource(text: str) -> str:
+    """
+    Auto-detect the canonical resource type from free-form task description text.
+    Uses substring matching against RESOURCE_SYNONYMS in order of specificity.
+    Falls back to 'general-data' when no synonym matches.
+    """
+    text_lower = text.lower()
+    for resource, synonyms in RESOURCE_SYNONYMS.items():
+        for synonym in synonyms:
+            if synonym in text_lower:
+                return resource
+    return "general-data"
 
 
 # ---------------------------------------------------------------------------

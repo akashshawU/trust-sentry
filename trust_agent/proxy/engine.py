@@ -18,6 +18,8 @@ from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 
 from trust_agent.intelligence.hybrid_engine import HybridIntelligenceEngine, HybridResult
+from trust_agent.intelligence.text_router import TextRouter as _TextRouter
+from trust_agent.pillars.access_control import detect_role as _detect_role, detect_resource as _detect_resource
 
 # India Standard Time — UTC+5:30 (no DST)
 _IST = ZoneInfo("Asia/Kolkata")
@@ -349,110 +351,10 @@ def _ai_proxy_call(prompt_text: str) -> tuple[dict, str]:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Role detection — compound-first, then word-boundary single keywords
+# Role detection — single source of truth in trust_agent.pillars.access_control
+# _detect_role is imported at the top of this file:
+#   from trust_agent.pillars.access_control import detect_role as _detect_role
 # ─────────────────────────────────────────────────────────────────────────────
-
-# Compound role patterns — checked as substrings first (most specific)
-_COMPOUND_ROLE_PATTERNS: list[tuple[str, str]] = [
-    # Department + manager combos — all separator variants (underscore, hyphen, space)
-    ("hr_manager",              "hr_manager"),
-    ("hr-manager",              "hr_manager"),
-    ("hrmanager",               "hr_manager"),
-    ("human resources manager", "hr_manager"),
-    ("hr manager",              "hr_manager"),   # space-separated
-    ("finance_manager",         "finance_manager"),
-    ("finance-manager",         "finance_manager"),
-    ("finance manager",         "finance_manager"),
-    ("legal_manager",           "legal_manager"),
-    ("legal-manager",           "legal_manager"),
-    ("legal manager",           "legal_manager"),
-    ("audit_manager",           "audit_manager"),
-    ("audit-manager",           "audit_manager"),
-    ("audit manager",           "audit_manager"),
-    ("it_manager",              "it_manager"),
-    ("it-manager",              "it_manager"),
-    ("it manager",              "it_manager"),
-    ("compliance_manager",      "compliance_manager"),
-    ("compliance-manager",      "compliance_manager"),
-    ("compliance manager",      "compliance_manager"),
-    ("risk_manager",            "risk_manager"),
-    ("risk-manager",            "risk_manager"),
-    ("risk manager",            "risk_manager"),
-    # Seniority + role combos
-    ("senior_manager",          "senior_manager"),
-    ("senior-manager",          "senior_manager"),
-    ("senior manager",          "senior_manager"),
-    ("senior_analyst",          "senior_analyst"),
-    ("senior-analyst",          "senior_analyst"),
-    ("senior analyst",          "senior_analyst"),
-    ("senior_consultant",       "senior_consultant"),
-    ("senior-consultant",       "senior_consultant"),
-    ("senior consultant",       "senior_consultant"),
-    ("lead_analyst",            "lead_analyst"),
-    ("lead-analyst",            "lead_analyst"),
-    ("lead analyst",            "lead_analyst"),
-    ("external_auditor",        "external_auditor"),
-    ("external-auditor",        "external_auditor"),
-    ("external auditor",        "external_auditor"),
-    # C-suite compound phrases
-    ("chief executive",         "ceo"),
-    ("chief financial",         "cfo"),
-    ("chief technology",        "cto"),
-    ("chief operating",         "coo"),
-    ("chief information",       "ciso"),
-    # NOTE: Intentionally NO greedy prefix shortcuts like "hr-", "finance-", "legal-"
-    # because they would wrongly match "hr-director-001", "finance-cto", etc.
-    # The single-keyword stage with \b boundaries handles the remaining cases.
-]
-
-# Single-keyword roles — matched with word-boundary regex (\b...\b) to prevent
-# substring traps.  CRITICAL ORDER: "director" MUST come before "cto" because
-# "cto" is a literal substring of "director" (d-i-r-e-**c**-**t**-**o**-r).
-_SINGLE_KEYWORD_ROLES: list[tuple[str, str]] = [
-    ("ceo",         "ceo"),
-    ("cfo",         "cfo"),
-    ("coo",         "coo"),
-    ("partner",     "partner"),
-    ("director",    "director"),   # ← MUST precede "cto" to avoid substring trap
-    ("cto",         "cto"),        # would match "director" without \b guard
-    ("scheduler",   "scheduler"),
-    ("manager",     "manager"),    # generic — after all specific managers above
-    ("analyst",     "analyst"),
-    ("auditor",     "auditor"),
-    ("consultant",  "consultant"),
-    ("developer",   "developer"),
-    ("admin",       "admin"),
-    ("intern",      "intern"),
-    ("vendor",      "vendor"),
-    ("client",      "client"),
-    ("guest",       "guest"),
-    ("system",      "system"),
-]
-
-
-def _detect_role(caller_id: str) -> str:
-    """
-    Detect caller role from a caller-ID string.
-
-    Step 1 — compound patterns (substring match, most-specific first).
-    Step 2 — single keywords with word-boundary regex so that e.g. "cto"
-              does NOT match inside "director".
-    """
-    text = caller_id.lower().strip()
-
-    for pattern, role in _COMPOUND_ROLE_PATTERNS:
-        if pattern in text:
-            return role
-
-    for kw, role in _SINGLE_KEYWORD_ROLES:
-        if re.search(r"\b" + re.escape(kw) + r"\b", text):
-            return role
-
-    # Numeric / anonymous user IDs  (e.g. "user-1234") → treat as analyst
-    if re.match(r"^(user|usr|emp|id)[-_]?\d+$", text):
-        return "analyst"
-
-    return "unknown"
 
 
 def _parse_hour(timestamp: str) -> int:
@@ -1546,6 +1448,65 @@ class AgentProxy:
         return round(max(0.0, min(100.0, score)), 1)
 
     @staticmethod
+    def calculate_final_decision(
+        pillar_scores: dict,
+        hard_violations: list,
+        hard_escalations: list,
+        caller_role: str,
+        resource_sensitivity: str,
+    ) -> tuple[float, str]:
+        """
+        Foundation 4 — Unified Scoring Engine.
+        Single canonical function that produces BOTH composite score AND decision.
+        They are always consistent — no other code may override the decision independently.
+
+        Returns (composite_score, decision).
+        Decision values: ALLOW | ALLOW_WITH_RESTRICTIONS | WARN | ESCALATE | BLOCK
+        """
+        weights = {
+            "security":       0.25,
+            "fairness":       0.20,
+            "privacy":        0.20,
+            "compliance":     0.15,
+            "access":         0.12,
+            "explainability": 0.05,
+            "resilience":     0.03,
+        }
+        composite, weight_used = 0.0, 0.0
+        for pillar, weight in weights.items():
+            score = pillar_scores.get(pillar, 100.0)
+            composite += score * weight
+            weight_used += weight
+        composite = round(
+            max(0.0, min(100.0, composite / weight_used if weight_used else composite)), 2
+        )
+
+        # Rule 1: Hard CRITICAL violations always BLOCK — score forced to RED range
+        if hard_violations:
+            critical = [v for v in hard_violations if v.get("severity") == "CRITICAL"]
+            if critical:
+                composite = min(composite, 20.0)
+                return composite, "BLOCK"
+
+        # Rule 2: Hard escalations
+        if hard_escalations:
+            return composite, "ESCALATE"
+
+        # Rule 3: Score-based decisions — score and decision always consistent
+        if composite >= 85:
+            return composite, "ALLOW"
+        if composite >= 65:
+            return composite, "ALLOW_WITH_RESTRICTIONS"
+        if composite >= 40:
+            # AMBER range — WARN unless access control specifically fails
+            if pillar_scores.get("access", 100) < 40:
+                composite = min(composite, 39.0)
+                return composite, "BLOCK"
+            return composite, "WARN"
+        # RED range — always BLOCK
+        return composite, "BLOCK"
+
+    @staticmethod
     def _make_decision(
         violations:     list[dict],
         blocked_acts:   list[dict],
@@ -1556,31 +1517,27 @@ class AgentProxy:
     ) -> tuple[str, bool, str | None]:
         """
         Returns (decision, proceed, conditions).
+        Delegates score-based decision logic to calculate_final_decision() —
+        the canonical scoring engine (Foundation 4).
 
         Priority chain:
-          1. CRITICAL violations  → unconditional BLOCK (override score)
-          2. Escalation required  → ESCALATE (request held for approval)
-          3. Partial block        → ALLOW_WITH_RESTRICTIONS (some actions blocked)
-          4. All blocked + score  → score-based:
-               score ≥ 55 (AMBER) → ALLOW_WITH_RESTRICTIONS (access blocked, intent clean)
-               score <  55 (RED)  → BLOCK
-          5. No blocks            → score-based:
-               score ≥ 85         → ALLOW
-               score ≥ 55         → ALLOW_WITH_RESTRICTIONS (minor concerns)
-               score <  55        → BLOCK
+          1. CRITICAL rule violations → unconditional BLOCK
+          2. Escalation required      → ESCALATE
+          3. Mixed blocked+allowed    → ALLOW_WITH_RESTRICTIONS (structural)
+          4. All blocked or no blocks → calculate_final_decision() score-based
         """
-        # ── 1. Hard CRITICAL violations always BLOCK regardless of score ────
-        has_critical = any(
+        # ── 1. Hard CRITICAL guardrail-rule violations always BLOCK ────────
+        has_critical_rule = any(
             v.get("guardrail_rule") in _CRITICAL_RULES for v in violations
         )
-        if has_critical:
+        if has_critical_rule:
             return "BLOCK", False, None
 
         # ── 2. Escalation required ─────────────────────────────────────────
         if escalation_req:
             return "ESCALATE", False, f"Pending approval from {escalate_to}"
 
-        # ── 3. Mixed (some actions allowed, some blocked) ──────────────────
+        # ── 3. Mixed (some actions allowed, some blocked) — structural ─────
         if blocked_acts and allowed_acts:
             acted        = [a["action"] for a in allowed_acts]
             blocked_desc = "; ".join(
@@ -1592,37 +1549,43 @@ class AgentProxy:
                 f"Permitted actions: {', '.join(set(acted))}. Blocked: {blocked_desc}",
             )
 
-        # ── 4. All requested actions blocked ──────────────────────────────
-        if blocked_acts and not allowed_acts:
-            blocked_desc = "; ".join(
-                f"{b['action']} on {b['resource']}" for b in blocked_acts[:3]
-            )
-            # CRITICAL-severity violations (e.g. payroll_protection) always BLOCK
-            # regardless of trust score.  Score-based fallback only applies when
-            # violations are HIGH/MEDIUM/LOW — meaning the block came from a policy
-            # mismatch (e.g. wrong agent domain) with otherwise clean intent.
-            has_critical_sev = any(
-                v.get("severity") == "CRITICAL" for v in violations
-            )
-            if not has_critical_sev and trust_score >= 55:
-                # Intent is clean (AMBER+) and no critical severity — allow with note
-                return (
-                    "ALLOW_WITH_RESTRICTIONS",
-                    True,
-                    (
-                        f"Requested actions were blocked ({blocked_desc}). "
-                        "Intent is clean (AMBER trust score) — request allowed with "
-                        "access restrictions applied."
-                    ),
-                )
-            return "BLOCK", False, None
+        # ── 4. Delegate to calculate_final_decision() for score-based cases ─
+        has_critical_sev = any(v.get("severity") == "CRITICAL" for v in violations)
+        # Access score: low when blocked+critical, partial when just blocked
+        access_score = (
+            15.0 if (blocked_acts and has_critical_sev) else
+            45.0 if blocked_acts else
+            90.0
+        )
+        pillar_scores = {
+            "security": trust_score,
+            "access":   access_score,
+        }
+        hard_viol = [v for v in violations if v.get("severity") == "CRITICAL"]
+        _, decision = AgentProxy.calculate_final_decision(
+            pillar_scores    = pillar_scores,
+            hard_violations  = hard_viol,
+            hard_escalations = [],
+            caller_role      = "",
+            resource_sensitivity = "",
+        )
 
-        # ── 5. No blocked actions — score-based allow ─────────────────────
-        if trust_score >= 85:
-            return "ALLOW", True, None
-        if trust_score >= 55:
-            return "ALLOW_WITH_RESTRICTIONS", True, "Request permitted with monitoring — trust score in AMBER range."
-        return "BLOCK", False, None
+        proceed    = decision in ("ALLOW", "ALLOW_WITH_RESTRICTIONS", "WARN")
+        conditions: str | None = None
+        if decision == "ALLOW_WITH_RESTRICTIONS":
+            if blocked_acts:
+                blocked_desc = "; ".join(
+                    f"{b['action']} on {b['resource']}" for b in blocked_acts[:3]
+                )
+                conditions = (
+                    f"Requested actions were blocked ({blocked_desc}). "
+                    "Intent is clean — request allowed with access restrictions applied."
+                )
+            else:
+                conditions = "Request permitted with monitoring — trust score in AMBER range."
+        elif decision == "WARN":
+            conditions = "Request flagged for review — AMBER trust score. Monitoring applied."
+        return decision, proceed, conditions
 
 
 # ── Module-level singleton ────────────────────────────────────────────────
