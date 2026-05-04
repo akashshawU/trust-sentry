@@ -23,6 +23,7 @@ from presidio_analyzer import (
     PatternRecognizer,
     RecognizerRegistry,
 )
+from presidio_analyzer.nlp_engine import NlpEngineProvider
 from presidio_anonymizer import AnonymizerEngine
 from pydantic import BaseModel
 
@@ -257,7 +258,14 @@ for _recognizer in [
 ]:
     _registry.add_recognizer(_recognizer)
 
-_analyzer   = AnalyzerEngine(registry=_registry)
+# Explicitly pin to en_core_web_sm so Render never attempts to pull en_core_web_lg.
+# Without this, presidio inherits whatever spaCy model is linked as the env default.
+_nlp_engine = NlpEngineProvider(nlp_configuration={
+    "nlp_engine_name": "spacy",
+    "models": [{"lang_code": "en", "model_name": "en_core_web_sm"}],
+}).create_engine()
+
+_analyzer   = AnalyzerEngine(nlp_engine=_nlp_engine, registry=_registry)
 _anonymizer = AnonymizerEngine()
 
 # ---------------------------------------------------------------------------
