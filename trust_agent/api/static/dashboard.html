@@ -1925,11 +1925,16 @@ function detectActions(task, agentType) {
 function detectScenarioHint(task) {
   const t = (task || '').toLowerCase();
   if (/ignore|bypass|override.*instruction|disregard|jailbreak|dump.*(database|system)/.test(t)) return 'injection';
-  if (/aadhaar|pan card|emirates id|ssn|passport number/.test(t)) return 'pii_leak';
-  if (/gdpr|retain.*indefinitely|waive.*right|data.*retention/.test(t)) return 'gdpr_violation';
+  if (/backup system|dr endpoint|disaster recovery|unpatched vulnerabilit|server inventor/.test(t)) return 'ransomware';
+  if (/loan application|loan approval|scheduled caste|caste|above 55|age filter|reject applicant|automated rejection/.test(t)) return 'loan_bias';
+  if (/non-english name|hard to pronounce|career gap|childcare|tier-2 cit|screen candidates/.test(t)) return 'cv_bias';
   if (/export all|bulk export|all.*record|all \d{2,}/.test(t)) return 'bulk_export';
+  if (/saudi banking|saudi customer|iqama|ndmo|sama|transfer to us/.test(t)) return 'sama_violation';
+  if (/patient|diagnosis|medical|ehr|phi|pharma|drug advertisement|patient targeting/.test(t)) return 'hipaa_violation';
+  if (/aadhaar|pan card|emirates id|ssn|passport number/.test(t)) return 'pii_leak';
+  if (/carbon neutral|zero emission|net zero|sustainability report|without carbon accounting/.test(t)) return 'greenwashing';
+  if (/gdpr|retain.*indefinitely|waive.*right|data.*retention/.test(t)) return 'gdpr_violation';
   if (/transfer.*data|cross.border|between.*office/.test(t)) return 'compliance';
-  if (/reject.*age|above \d+ year|scheduled caste|rural area|caste|lower caste/.test(t)) return '';
   return '';
 }
 

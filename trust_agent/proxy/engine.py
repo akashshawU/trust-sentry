@@ -20,6 +20,7 @@ from zoneinfo import ZoneInfo
 from trust_agent.intelligence.hybrid_engine import HybridIntelligenceEngine, HybridResult
 from trust_agent.intelligence.text_router import TextRouter as _TextRouter
 from trust_agent.pillars.access_control import detect_role as _detect_role, detect_resource as _detect_resource
+from trust_agent.pillars.access_control import KNOWLEDGE_KEYWORDS as _KNOWLEDGE_KEYWORDS
 
 # India Standard Time — UTC+5:30 (no DST)
 _IST = ZoneInfo("Asia/Kolkata")
@@ -48,6 +49,8 @@ _CRITICAL_RULES  = {
     "ksa_pdpl_absolute", "hipaa_absolute",
     # Severe threat categories
     "financial_crime", "synthetic_media",
+    # Discriminatory AI decisions — EU AI Act Art.5 + Equal Opportunities
+    "fairness_bias",
 }
 _ESCALATE_RULES  = {
     "bulk_export_protection", "external_communication_approval",
@@ -414,6 +417,75 @@ def _is_external(target: str) -> bool:
     return not any(i in t for i in internal)
 
 
+def _build_reasoning_text(
+    violations: list,
+    ai_reasoning: str,
+    tier_used: str,
+) -> str:
+    """Build consistent human-readable reasoning text for any result."""
+    if ai_reasoning and len(ai_reasoning) > 20:
+        prefix = f"[{tier_used}] " if tier_used not in ("AI_EVALUATION", "groq-cp1", "") else ""
+        return prefix + ai_reasoning
+
+    if violations:
+        critical = [v for v in violations if v.get("severity") == "CRITICAL"]
+        high     = [v for v in violations if v.get("severity") == "HIGH"]
+        if critical:
+            return (
+                f"{len(critical)} critical violation(s) detected: "
+                + critical[0].get("description", "")
+            )
+        if high:
+            return (
+                f"{len(high)} high severity issue(s): "
+                + high[0].get("description", "")
+            )
+        return f"{len(violations)} violation(s) found. Review required."
+
+    return "No violations detected. Routine evaluation passed."
+
+
+def _make_final_decision(
+    security_score: float,
+    fairness_score: float,
+    compliance_score: float,
+    access_score: float,
+    all_violations: list,
+    escalation_rules_triggered: bool,
+) -> tuple[float, str]:
+    """
+    Canonical decision function: weights 4 primary pillars, applies
+    CRITICAL-violation override and escalation rules, then derives
+    decision from composite. Score and decision are ALWAYS consistent.
+    """
+    composite = (
+        security_score   * 0.30
+        + fairness_score   * 0.25
+        + compliance_score * 0.20
+        + access_score     * 0.25
+    )
+    composite = round(max(0.0, min(100.0, composite)), 2)
+
+    # Rule 1: CRITICAL violations always BLOCK
+    critical_count = sum(1 for v in all_violations if v.get("severity") == "CRITICAL")
+    if critical_count > 0:
+        composite = min(composite, 25.0)
+        return composite, "BLOCK"
+
+    # Rule 2: Escalation
+    if escalation_rules_triggered:
+        return composite, "ESCALATE"
+
+    # Rule 3: Score → decision (score and decision always match)
+    if composite >= 85:
+        return composite, "ALLOW"
+    if composite >= 65:
+        return composite, "ALLOW_WITH_RESTRICTIONS"
+    if composite >= 45:
+        return composite, "WARN"
+    return composite, "BLOCK"
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # AgentProxy
 # ─────────────────────────────────────────────────────────────────────────────
@@ -614,26 +686,90 @@ class AgentProxy:
                 "record_count": int(a.get("record_count", 0)),
             })
 
-        # ── 4. Hybrid Intelligence evaluation ─────────────────────────────────
-        # Three-tier system: Tier 1 = definitive rules (0 API calls, ~70% of cases),
-        # Tier 2 = AI only for ambiguous cases, Tier 3 = enhanced rules fallback.
+        # ── 4. Intelligence evaluation — Tier 1: unified Groq CP1, Tier 2: hybrid fallback ──
         _hybrid = _get_hybrid_engine()
-        hybrid_result = _hybrid.evaluate(
-            text=task_desc,
-            context={
-                "agent_id":          agent_id,
-                "caller_role":       caller_role,
-                "caller_id":         caller_id,
-                "trigger_type":      trigger_type,
-                "requested_actions": raw_actions,
-                "timestamp":         ts,
-            },
-        )
-        print(f"[Proxy] Hybrid tier: {hybrid_result.tier_used} | API calls: {hybrid_result.api_calls_made}")
 
-        # Map hybrid result → internal variables used by the rest of this function
-        security_score     = hybrid_result.scores.get("security", 85.0)
-        _early_ai_provider = hybrid_result.tier_used.lower().replace("_", "-")
+        # Step A: try unified Groq call (all pillars, one fast call)
+        _ev_for_cp1 = _get_proxy_evaluator()
+        _ai_cp1_result: dict | None = None
+        if hasattr(_ev_for_cp1, "_groq_evaluate_cp1"):
+            _ai_cp1_result = _ev_for_cp1._groq_evaluate_cp1(  # type: ignore[union-attr]
+                task_description   = task_desc,
+                agent_id           = agent_id,
+                caller_role        = caller_role,
+                trigger_type       = trigger_type,
+                requested_actions  = raw_actions,
+            )
+
+        # Step B: extract scores from AI or fall back to hybrid engine
+        if _ai_cp1_result:
+            security_score   = float(_ai_cp1_result.get("security_score",   85.0))
+            fairness_score   = float(_ai_cp1_result.get("fairness_score",   90.0))
+            compliance_score = float(_ai_cp1_result.get("compliance_score", 90.0))
+            access_score_ai  = float(_ai_cp1_result.get("access_score",     85.0))
+            is_knowledge     = bool(_ai_cp1_result.get("is_knowledge_request", False))
+            _ai_violations   = _ai_cp1_result.get("violations", [])
+            _ai_reasoning    = _ai_cp1_result.get("reasoning", "")
+            ai_bias_detected = bool(_ai_cp1_result.get("bias_detected", False))
+            ai_bias_types    = list(_ai_cp1_result.get("bias_types", []))
+            detected_resource = _detect_resource(
+                task_desc,
+                ai_resource=_ai_cp1_result.get("resource_detected"),
+            )
+            _early_ai_provider = "groq-cp1"
+            hybrid_result = None   # not needed — AI handled this
+            print(f"[Proxy] Groq-CP1 unified: sec={security_score:.0f} fair={fairness_score:.0f} "
+                  f"comp={compliance_score:.0f} acc={access_score_ai:.0f} "
+                  f"decision={_ai_cp1_result.get('overall_decision','?')}")
+        else:
+            # Fallback: hybrid engine (Tier 1 definitive rules → Tier 2 AI → Tier 3 enhanced)
+            hybrid_result = _hybrid.evaluate(
+                text=task_desc,
+                context={
+                    "agent_id":          agent_id,
+                    "caller_role":       caller_role,
+                    "caller_id":         caller_id,
+                    "trigger_type":      trigger_type,
+                    "requested_actions": raw_actions,
+                    "timestamp":         ts,
+                },
+            )
+            print(f"[Proxy] Hybrid fallback tier: {hybrid_result.tier_used} | "
+                  f"API calls: {hybrid_result.api_calls_made}")
+            security_score   = hybrid_result.scores.get("security",   85.0)
+            fairness_score   = hybrid_result.scores.get("fairness",   90.0)
+            compliance_score = hybrid_result.scores.get("compliance", 90.0)
+            access_score_ai  = 85.0
+            is_knowledge     = False
+            _ai_violations   = hybrid_result.violations
+            _ai_reasoning    = hybrid_result.reasoning
+            ai_bias_detected = False
+            ai_bias_types    = []
+            detected_resource = _detect_resource(task_desc)
+            _early_ai_provider = hybrid_result.tier_used.lower().replace("_", "-")
+
+        # Step C: ALWAYS run definitive hardcoded rules (safety net, zero API calls)
+        _definitive_ctx = {
+            "agent_id": agent_id, "caller_role": caller_role,
+            "caller_id": caller_id, "trigger_type": trigger_type,
+            "requested_actions": raw_actions, "timestamp": ts,
+        }
+        _def_result = _hybrid._check_definitive_rules(task_desc, _definitive_ctx)
+        if _def_result.is_definitive:
+            # Hardcoded Tier 1 fires: override AI scores downward, prepend violations
+            security_score   = min(security_score,   _def_result.scores.get("security",   security_score))
+            fairness_score   = min(fairness_score,   _def_result.scores.get("fairness",   fairness_score))
+            compliance_score = min(compliance_score, _def_result.scores.get("compliance", compliance_score))
+            _ai_violations   = _def_result.violations + _ai_violations
+            if not _ai_reasoning:
+                _ai_reasoning = _def_result.reasoning
+            print(f"[Proxy] Definitive Tier-1 triggered: {_def_result.primary_violation}")
+
+        # Knowledge requests get access score boost (reading docs/standards is always fine)
+        if is_knowledge:
+            access_score_ai = max(access_score_ai, 85.0)
+            detected_resource = "approved-documents"
+
         _early_ai_data: dict = {
             "intent_score": security_score,
             "risk_level": (
@@ -642,17 +778,15 @@ class AgentProxy:
                 "MEDIUM"   if security_score < 70 else
                 "LOW"
             ),
-            "reasoning":  hybrid_result.reasoning,
+            "reasoning":  _ai_reasoning,
             "red_flags":  [
                 v.get("description", "")[:80]
-                for v in hybrid_result.violations[:3]
+                for v in _ai_violations[:3]
                 if v.get("description")
             ],
         }
 
-        # ── 4b. Wire hybrid OWASP / regulatory violations → guardrails_applied ─
-        # Collect which OWASP / regulatory rules were triggered by the hybrid engine
-        # so they appear in the Guardrails Evaluated card in the UI (CP1 result).
+        # ── 4b. Wire OWASP / regulatory violations → guardrails_applied ─
         _OWASP_REGULATORY_RULES = {
             "owasp_llm01", "owasp_llm02", "owasp_llm04", "owasp_llm06",
             "owasp_llm07", "owasp_llm08", "owasp_llm09", "owasp_llm10",
@@ -662,9 +796,13 @@ class AgentProxy:
             "shadow_ai_detection", "multi_agent_trust_boundary",
         }
         _triggered_hybrid_rules: set[str] = set()
-        _owasp_reg_guardrails: list[dict] = []   # added to guardrails_applied later
+        _owasp_reg_guardrails: list[dict] = []
 
-        for hv in hybrid_result.violations:
+        # Use _ai_violations (from Groq-CP1 or hybrid fallback)
+        _all_early_violations = _ai_violations if _ai_cp1_result else (
+            hybrid_result.violations if hybrid_result else []
+        )
+        for hv in _all_early_violations:
             rule = hv.get("guardrail_rule", "")
             if rule in _OWASP_REGULATORY_RULES:
                 _triggered_hybrid_rules.add(rule)
@@ -1040,15 +1178,14 @@ class AgentProxy:
                 deduped_guardrails.append(g)
         guardrails_applied = deduped_guardrails
 
-        # ── Merge hybrid violations (fairness / compliance / AI-detected) ──
-        # Add violations from the hybrid engine that the rule-based engine
-        # doesn't cover (e.g. gender bias, caste bias, GDPR pattern matches).
+        # ── Merge AI violations (fairness / compliance / AI-detected) ──
         _existing_grules = {v.get("guardrail_rule", "") for v in violations}
-        for hv in hybrid_result.violations:
+        _source_violations = _ai_violations if _ai_cp1_result else (
+            hybrid_result.violations if hybrid_result else []
+        )
+        for hv in _source_violations:
             hv_rule   = hv.get("guardrail_rule", "ai_detected")
             hv_pillar = hv.get("pillar", "security")
-            # Always add fairness / compliance violations from hybrid engine;
-            # skip security injection duplicates (already added by rule engine).
             if hv_pillar in ("fairness", "compliance", "privacy"):
                 violations.append(hv)
             elif hv_rule == "ai_detected":
@@ -1061,30 +1198,52 @@ class AgentProxy:
             agent_profile["trust_baseline"], violations
         )
 
-        # ── Blend AI + rules (reuse early AI call — no second Groq call) ──
+        # ── Compute trust score from AI scores + rule-based violations ───
         ai_data      = _early_ai_data
         ai_provider  = _early_ai_provider
         ai_intent_score: float | None = None
-        ai_reasoning: str = ""
+        ai_reasoning_final: str = ""
         ai_red_flags: list = []
-        # Determine if evaluator is in pure simulation mode (no keys loaded)
         _ev = _get_proxy_evaluator()
         _ai_mock_mode = not hasattr(_ev, "mock_mode") or _ev.mock_mode  # type: ignore[attr-defined]
+
         if ai_data:
             ai_intent_score = float(ai_data.get("intent_score", 75.0))
-            ai_reasoning    = str(ai_data.get("reasoning", ""))
+            ai_reasoning_final = _build_reasoning_text(violations, ai_data.get("reasoning", ""), ai_provider)
             ai_red_flags    = [str(f) for f in ai_data.get("red_flags", []) if f]
-            # Blend: 65% AI + 35% rules
-            blended = round((ai_intent_score * 0.65) + (rule_trust_score * 0.35), 1)
-            # Hard CRITICAL rule violations always cap the score
+            # Use _make_final_decision() for consistent score + decision
+            _, _pre_decision = _make_final_decision(
+                security_score   = security_score,
+                fairness_score   = fairness_score,
+                compliance_score = compliance_score,
+                access_score     = access_score_ai,
+                all_violations   = violations,
+                escalation_rules_triggered = escalation_required,
+            )
+            # Trust score = composite from _make_final_decision
+            _composite_score, _ = _make_final_decision(
+                security_score   = security_score,
+                fairness_score   = fairness_score,
+                compliance_score = compliance_score,
+                access_score     = access_score_ai,
+                all_violations   = [],   # score only, violations applied separately
+                escalation_rules_triggered = False,
+            )
+            # Blend composite with rule_trust_score (60/40)
+            blended = round((_composite_score * 0.60) + (rule_trust_score * 0.40), 1)
             has_critical = any(v.get("guardrail_rule") in _CRITICAL_RULES for v in violations)
             trust_score  = min(blended, 15.0) if has_critical else blended
         else:
             trust_score  = rule_trust_score
+            fairness_score   = 90.0
+            compliance_score = 90.0
+            access_score_ai  = 85.0
             if _ai_mock_mode:
-                ai_reasoning = "Simulation mode — add API key for AI evaluation."
+                ai_reasoning_final = "Simulation mode — add API key for AI evaluation."
             else:
-                ai_reasoning = "AI evaluation attempted — using rule-based fallback. Check /debug/intelligence for provider status."
+                ai_reasoning_final = "AI evaluation attempted — using rule-based fallback."
+        # Keep backward-compat alias
+        ai_reasoning = ai_reasoning_final
 
         # ── Make final decision ───────────────────────────────────────────
         decision, proceed, conditions = self._make_decision(
@@ -1129,9 +1288,15 @@ class AgentProxy:
             "ai_provider":         ai_provider,
             "ai_mock_mode":        _ai_mock_mode,
             "rule_trust_score":    rule_trust_score,
+            "fairness_score":      fairness_score,
+            "compliance_score":    compliance_score,
+            "is_knowledge_request":is_knowledge if _ai_cp1_result else False,
+            "detected_resource":   detected_resource if _ai_cp1_result else "",
+            "ai_bias_detected":    ai_bias_detected if _ai_cp1_result else False,
+            "ai_bias_types":       ai_bias_types if _ai_cp1_result else [],
             # Hybrid engine metadata
-            "hybrid_tier":         hybrid_result.tier_used,
-            "hybrid_api_calls":    hybrid_result.api_calls_made,
+            "hybrid_tier":         hybrid_result.tier_used if hybrid_result else "groq-cp1",
+            "hybrid_api_calls":    hybrid_result.api_calls_made if hybrid_result else 0,
         }
 
         # ── Store session ─────────────────────────────────────────────────
@@ -1299,52 +1464,67 @@ class AgentProxy:
             or any(kw in output.lower() for kw in _overdisclosure_kws)
         )
 
-        # ── 4b. AI output evaluation ──────────────────────────────────────
-        # Only call AI for CP2 when the output is long (>200 chars) AND
-        # there are early signals of issues (pii_count > 0 OR compliance
-        # score < 75). This avoids 4 sequential AI calls per intercept
-        # which would cause timeout on free-tier Groq (30 RPM).
-        _ai_out_worth_checking = (
-            len(output) > 200
-            and (pii_count > 0 or comp_score < 75)
-        )
-        # Determine mock_mode for CP2 result (same logic as CP1)
+        # ── 4b. AI output evaluation (Groq-CP2 unified, with Presidio pre-scan) ──
         _ev2 = _get_proxy_evaluator()
         _ai_mock_mode = not hasattr(_ev2, "mock_mode") or _ev2.mock_mode  # type: ignore[attr-defined]
+
+        # PII classification — always_redact vs context_dependent
+        _ALWAYS_REDACT = {
+            "IN_AADHAAR", "IN_PAN", "UAE_EMIRATES_ID", "KSA_NATIONAL_ID",
+            "US_SSN", "CREDIT_CARD", "IBAN_CODE", "PASSPORT", "IN_MOBILE",
+            "MEDICAL_LICENSE", "UK_NHS", "IN_VOTER_ID", "IN_IFSC",
+        }
+        _pii_for_redact_check = [
+            e for e in pii_result.entities_found
+            if e.get("entity_type") in _ALWAYS_REDACT
+        ]
+        _preliminary_pii_types = list({e["entity_type"] for e in _pii_for_redact_check})
 
         ai_output_score: float | None = None
         ai_out_reasoning: str = ""
         ai_out_concerns: list = []
         ai_out_provider: str = "none"
-        if _ai_out_worth_checking:
-            output_prompt = _PROXY_OUTPUT_PROMPT.format(
-                agent_id      = cp1.get("agent_id", "unknown"),
-                agent_display = cp1.get("agent_display_name", "Unknown Agent"),
-                caller_role   = cp1.get("caller_role", "unknown"),
-                task          = cp1.get("task_description", "")[:300]
-                                or str(cp1.get("violations", ""))[:200],
-                output_preview= output[:1500],
+        _cp2_ai_result: dict | None = None
+
+        _ai_out_worth_checking = len(output) > 100
+
+        if _ai_out_worth_checking and hasattr(_ev2, "_groq_evaluate_output"):
+            _cp2_ai_result = _ev2._groq_evaluate_output(  # type: ignore[union-attr]
+                output          = output[:2000],
+                original_task   = cp1.get("task_description", ""),
+                permitted_scope = [a["action"] for a in cp1.get("allowed_actions", [])],
+                preliminary_pii = _preliminary_pii_types or None,
             )
-            ai_out_data, ai_out_provider = _ai_proxy_call(output_prompt)
-            if ai_out_data:
-                ai_output_score  = float(ai_out_data.get("output_score", 75.0))
-                ai_out_reasoning = str(ai_out_data.get("reasoning", ""))
-                ai_out_concerns  = [str(c) for c in ai_out_data.get("concerns", []) if c]
+            if _cp2_ai_result:
+                ai_output_score  = 100.0 if _cp2_ai_result.get("output_safe") else 40.0
+                ai_out_reasoning = _cp2_ai_result.get("reasoning", "")
+                ai_out_provider  = "groq-cp2"
             else:
-                if _ai_mock_mode:
-                    ai_out_reasoning = "Simulation mode — add API key for AI evaluation."
+                # Fall back to old output prompt
+                _ai_out_worth_checking2 = pii_count > 0 or comp_score < 75
+                if _ai_out_worth_checking2:
+                    output_prompt = _PROXY_OUTPUT_PROMPT.format(
+                        agent_id      = cp1.get("agent_id", "unknown"),
+                        agent_display = cp1.get("agent_display_name", "Unknown Agent"),
+                        caller_role   = cp1.get("caller_role", "unknown"),
+                        task          = cp1.get("task_description", "")[:300],
+                        output_preview= output[:1500],
+                    )
+                    ai_out_data, ai_out_provider = _ai_proxy_call(output_prompt)
+                    if ai_out_data:
+                        ai_output_score  = float(ai_out_data.get("output_score", 75.0))
+                        ai_out_reasoning = str(ai_out_data.get("reasoning", ""))
+                        ai_out_concerns  = [str(c) for c in ai_out_data.get("concerns", []) if c]
+                    else:
+                        ai_out_reasoning = "AI evaluation attempted — using rule-based fallback."
                 else:
-                    ai_out_reasoning = "AI evaluation attempted — using rule-based fallback. Check /debug/intelligence for provider status."
+                    ai_out_reasoning = "Output evaluation skipped — no issues detected."
+        elif not _ai_out_worth_checking:
+            ai_out_reasoning = "Output evaluation skipped — output too short."
         else:
-            ai_out_reasoning = "Output evaluation skipped — no PII or compliance issues detected."
+            ai_out_reasoning = "Simulation mode — add API key for AI evaluation."
 
-        # ── 5. Decide output action ───────────────────────────────────────
-        # Decision hierarchy (most severe first):
-        #   BLOCK  — explicit compliance violation (score < 30 + violation phrases)
-        #   REDACT — PII found that is outside permitted scope (or critical PII)
-        #   WARN   — compliance concern (30 <= score < 55) or minor scope expansion
-        #   ALLOW  — clean output, monitored-level compliance flags, no PII issues
-
+        # ── 5. Decide output action (hardcoded rules + AI combined) ────────
         redactions_applied: list[str] = []
         approved_output    = output
         output_decision    = "ALLOW"
@@ -1356,8 +1536,18 @@ class AgentProxy:
         )
         cp2_trust = cp1.get("trust_score", 70.0)
 
-        # 5a. BLOCK — explicit compliance violation in output
-        if compliance_violated and output.strip():
+        # 5a. Critical PII in output — ALWAYS REDACT (hardcoded rule, AI cannot override)
+        if critical_pii:
+            output_decision    = "REDACT"
+            approved_output    = pii_result.anonymized_text
+            redactions_applied = [
+                f"{e['entity_type']} at position {e['start']}-{e['end']}"
+                for e in pii_found
+            ]
+            cp2_trust = max(0.0, cp2_trust - (len(critical_pii) * 10 + pii_count * 5))
+
+        # 5b. BLOCK — explicit compliance violation (hardcoded rule wins)
+        elif compliance_violated and output.strip():
             output_decision = "BLOCK"
             approved_output = (
                 "[OUTPUT BLOCKED BY AGENT B PROXY]\n\n"
@@ -1370,22 +1560,48 @@ class AgentProxy:
             )
             cp2_trust = max(0.0, cp2_trust - 35)
 
-        # 5b. REDACT — PII found in output (only when not already BLOCKED)
-        elif pii_count > 0:
-            output_decision    = "REDACT"
-            approved_output    = pii_result.anonymized_text
-            redactions_applied = [
-                f"{e['entity_type']} at position {e['start']}-{e['end']}"
-                for e in pii_found
-            ]
-            cp2_trust = max(0.0, cp2_trust - (len(critical_pii) * 10 + pii_count * 5))
+        # 5c. AI says output is safe AND no critical PII — trust AI
+        elif _cp2_ai_result and _cp2_ai_result.get("output_safe", False) and not _cp2_ai_result.get("pii_in_output", False):
+            output_decision = "ALLOW"
+            if not ai_out_reasoning:
+                ai_out_reasoning = _cp2_ai_result.get("reasoning", "AI evaluation: output is clean.")
 
-        # 5c. WARN — flagged compliance concern (not an outright violation)
-        elif compliance_status == "FLAGGED":
-            output_decision = "WARN"
-            cp2_trust = max(0.0, cp2_trust - 10)
+        # 5d. AI says BLOCK or REDACT
+        elif _cp2_ai_result:
+            _ai_cp2_dec = _cp2_ai_result.get("output_decision", "ALLOW")
+            if _ai_cp2_dec == "BLOCK" or _cp2_ai_result.get("compliance_violation", False):
+                output_decision = "BLOCK"
+                approved_output = (
+                    "[OUTPUT BLOCKED BY AGENT B PROXY]\n\n"
+                    "AI governance evaluation determined this output violates compliance rules.\n\n"
+                    f"Reasoning: {_cp2_ai_result.get('reasoning', '')}\n\n"
+                    f"Reference: {audit_id}"
+                )
+                cp2_trust = max(0.0, cp2_trust - 30)
+            elif (_ai_cp2_dec == "REDACT" or _cp2_ai_result.get("pii_in_output", False)) and pii_count > 0:
+                output_decision    = "REDACT"
+                approved_output    = pii_result.anonymized_text
+                redactions_applied = [
+                    f"{e['entity_type']} at position {e['start']}-{e['end']}"
+                    for e in pii_found
+                ]
+                cp2_trust = max(0.0, cp2_trust - (pii_count * 5))
 
-        # 5d. Scope violations: escalate ALLOW→WARN (not REDACT) for minor overruns
+        # 5e. No AI result — fall back to Presidio + compliance
+        else:
+            if pii_count > 0:
+                output_decision    = "REDACT"
+                approved_output    = pii_result.anonymized_text
+                redactions_applied = [
+                    f"{e['entity_type']} at position {e['start']}-{e['end']}"
+                    for e in pii_found
+                ]
+                cp2_trust = max(0.0, cp2_trust - (len(critical_pii) * 10 + pii_count * 5))
+            elif compliance_status == "FLAGGED":
+                output_decision = "WARN"
+                cp2_trust = max(0.0, cp2_trust - 10)
+
+        # 5f. Scope violations: escalate ALLOW→WARN
         if scope_violations and output_decision == "ALLOW":
             output_decision = "WARN"
             cp2_trust = max(0.0, cp2_trust - len(scope_violations) * 10)

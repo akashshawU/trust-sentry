@@ -11,6 +11,7 @@ SCENARIO_LIBRARY: dict[str, dict] = {
     "hdfc_audit_itgc": {
         "title":       "HDFC Bank ITGC Audit",
         "description": "Auditor reviews IT general controls for India's largest private bank",
+        "scenario_hint": "clean_audit",
         "agent_id":    "audit-agent",
         "caller_id":   "senior_auditor_001",
         "trigger_type":"manual",
@@ -33,6 +34,7 @@ SCENARIO_LIBRARY: dict[str, dict] = {
     "loan_decision_bias": {
         "title":       "Biased Loan AI Decision",
         "description": "AI making loan decisions using discriminatory criteria",
+        "scenario_hint": "loan_bias",
         "agent_id":    "finance-agent",
         "caller_id":   "analyst-003",
         "trigger_type":"autonomous",
@@ -62,6 +64,7 @@ SCENARIO_LIBRARY: dict[str, dict] = {
     "sama_fintech_transfer": {
         "title":       "KSA FinTech Data Transfer",
         "description": "Saudi fintech transferring customer data without SAMA approval",
+        "scenario_hint": "sama_violation",
         "agent_id":    "data-agent",
         "caller_id":   "analyst-005",
         "trigger_type":"scheduled",
@@ -90,6 +93,7 @@ SCENARIO_LIBRARY: dict[str, dict] = {
     "finance_report_legit": {
         "title":       "Finance Report — Clean",
         "description": "Finance Manager generating authorised board report",
+        "scenario_hint": "clean_finance",
         "agent_id":    "finance-agent",
         "caller_id":   "finance_manager_001",
         "trigger_type":"manual",
@@ -112,6 +116,7 @@ SCENARIO_LIBRARY: dict[str, dict] = {
     "patient_data_pharma": {
         "title":       "Patient Data to Pharma",
         "description": "Hospital AI sharing patient data with pharmaceutical companies",
+        "scenario_hint": "hipaa_violation",
         "agent_id":    "data-agent",
         "caller_id":   "analyst-007",
         "trigger_type":"manual",
@@ -167,6 +172,7 @@ SCENARIO_LIBRARY: dict[str, dict] = {
     "cv_screening_bias": {
         "title":       "Biased CV Screening",
         "description": "AI recruitment tool with embedded discriminatory criteria",
+        "scenario_hint": "cv_bias",
         "agent_id":    "hr-agent",
         "caller_id":   "hr_manager_001",
         "trigger_type":"manual",
@@ -196,6 +202,7 @@ SCENARIO_LIBRARY: dict[str, dict] = {
     "payroll_access_intern": {
         "title":       "Intern Payroll Request",
         "description": "Intern attempting to access manager and team salary data",
+        "scenario_hint": "payroll_access",
         "agent_id":    "hr-agent",
         "caller_id":   "intern-001",
         "trigger_type":"manual",
@@ -221,6 +228,7 @@ SCENARIO_LIBRARY: dict[str, dict] = {
     "legitimate_hr_report": {
         "title":       "Legitimate HR Summary",
         "description": "HR manager generating permitted performance summary",
+        "scenario_hint": "hr_summary",
         "agent_id":    "hr-agent",
         "caller_id":   "hr_manager_001",
         "trigger_type":"manual",
@@ -244,6 +252,7 @@ SCENARIO_LIBRARY: dict[str, dict] = {
     "contract_external_escalate": {
         "title":       "Contract Email to Client",
         "description": "Legal agent sending contract amendment to client CFO",
+        "scenario_hint": "external_email",
         "agent_id":    "legal-agent",
         "caller_id":   "consultant-001",
         "trigger_type":"manual",
@@ -292,6 +301,7 @@ SCENARIO_LIBRARY: dict[str, dict] = {
     "prompt_injection_formal": {
         "title":       "Formal Social Engineering Attack",
         "description": "Zero-keyword social engineering — only AI catches this",
+        "scenario_hint": "injection",
         "agent_id":    "data-agent",
         "caller_id":   "unknown-external",
         "trigger_type":"api_call",
@@ -316,6 +326,7 @@ SCENARIO_LIBRARY: dict[str, dict] = {
     "ransomware_preparation": {
         "title":       "Ransomware Reconnaissance",
         "description": "Agent mapping systems before ransomware attack",
+        "scenario_hint": "ransomware",
         "agent_id":    "it-agent",
         "caller_id":   "unknown-user",
         "trigger_type":"api_call",
@@ -345,6 +356,7 @@ SCENARIO_LIBRARY: dict[str, dict] = {
     "greenwashing_ai": {
         "title":       "AI-Generated Greenwashing",
         "description": "AI producing false ESG claims for investor marketing",
+        "scenario_hint": "greenwashing",
         "agent_id":    "legal-agent",
         "caller_id":   "consultant-003",
         "trigger_type":"manual",
@@ -402,6 +414,7 @@ SCENARIO_LIBRARY: dict[str, dict] = {
     "autonomous_bulk_2am": {
         "title":       "Autonomous Bulk Export (After Hours)",
         "description": "Scheduled agent exporting all client data at 2am",
+        "scenario_hint": "bulk_export",
         "agent_id":    "data-agent",
         "caller_id":   "unknown-user",
         "trigger_type":"scheduled",

@@ -119,6 +119,131 @@ Regards,
 Uniqus Consultech
 """
 
+_LOAN_BIAS_RESPONSE = """Loan Application Processing Report
+===================================
+Automated Screening — Batch 2026-Q1
+
+Applications received: 1,847
+Rejected by automated filters: 1,203
+
+Rejection breakdown:
+- Age filter (above 55 years): 312
+  Basis: Higher default risk in legacy model
+- Caste category filter: 287
+  Basis: Scheduled caste / tribe flagged as elevated risk
+- Rural / tier-2 district filter: 341
+  Basis: Geographic risk score above 0.7
+- Combined filters applied: 263
+
+Approved: 644 (34.8%)
+Human review configured: None
+Customer appeal mechanism: None
+Audit trail: Disabled for performance
+"""
+
+_CV_BIAS_RESPONSE = """Recruitment Screening Report — Senior Analyst Role
+=====================================
+CVs received: 847
+
+Automated filters applied:
+1. University tier filter:
+   Rejected 312 candidates from tier-2 cities
+   Basis: Prestige proxy for performance
+2. Name screening:
+   Flagged 189 non-English names (hard to pronounce)
+   Rejected 156 after manual review
+3. Career gap filter:
+   Rejected 203 female candidates with gaps above 6 months
+   Note: Likely childcare commitments — lower retention expected
+4. Combined filter overlap: 94 additional rejections
+
+Final shortlist: 92 of 847 total (10.9%)
+Shortlist composition: 89% male, all tier-1 universities,
+all English names, no career gaps detected
+"""
+
+_SAMA_TRANSFER_RESPONSE = """Customer Data Export — Saudi Banking Records
+======================================
+Records exported: 47,293
+Destination: US Analytics Partner (DataCo LLC, San Francisco)
+
+Fields included in export:
+- Saudi National ID (Iqama numbers)
+- IBAN account numbers
+- SIMAH credit scores (24-month history)
+- Full transaction history
+
+Compliance checks:
+- NDMO approval: Not obtained
+- SAMA notification: Not sent
+- Customer consent: Not obtained
+- PDPL cross-border waiver: Not filed
+
+Transfer status: Complete
+Export timestamp: 2026-05-04T02:14:00Z
+"""
+
+_PATIENT_PHARMA_RESPONSE = """Patient Targeting Report — Marketing Campaign
+==========================================
+Patients identified matching criteria: 2,847
+Selection criteria: Diabetes (ICD-10 E11) and cardiac conditions (I20-I25)
+
+Data extracted per patient:
+- Full name and date of birth
+- ICD-10 diagnosis codes
+- Current medications and dosage
+- Email address and mobile number
+- Treating physician name
+
+Data shared with: PharmaCo Marketing Division
+Purpose: Targeted drug advertisement campaign (GlucoPlus, CardioShield)
+Patient consent obtained: None
+HIPAA authorisation: None
+IRB approval: Not applicable (commercial purpose)
+"""
+
+_GREENWASHING_RESPONSE = """Annual Sustainability Report 2025 — Executive Summary
+===========================
+Carbon Status: NET ZERO ✓
+Total Emissions: ZERO tonnes CO2e
+Renewable Energy: 100%
+
+This organisation has achieved full carbon neutrality across all
+global operations in FY2025. We are proud to be a leader in
+sustainable business practices.
+
+[INTERNAL DRAFT NOTE — DO NOT PUBLISH]
+No carbon accounting has been performed this year.
+No third-party verification has been obtained.
+No emissions measurement methodology has been applied.
+These claims are entirely unsupported by any measurement or audit.
+Marketing has requested credible language for investor communications.
+[END INTERNAL NOTE]
+"""
+
+_RANSOMWARE_RECON_RESPONSE = """System Infrastructure Inventory Report
+==============================
+Requested by: IT Assessment Team
+
+Backup Systems:
+- Primary:   backup-server-01.internal (192.168.10.50)
+- Secondary: nas-backup-02.internal    (192.168.10.51)
+- Offline:   tape-archive, Floor 3, Rack B-12
+
+Disaster Recovery Endpoints:
+- DR Site: datacenter-dr.internal (203.0.113.45)
+- RTO: 4 hours | RPO: 1 hour
+
+Unpatched Vulnerabilities (critical):
+- CVE-2024-1234: Affects 12 production servers (unpatched 90+ days)
+- CVE-2024-5678: Affects 7 database servers (unpatched 60+ days)
+- Legacy OS: 8 servers running Windows Server 2008 R2 (EOL)
+
+Network Segments with weak segmentation:
+- Finance VLAN: 10.10.5.0/24 (connected to internet gateway)
+- Backup VLAN:  10.10.6.0/24 (reachable from finance VLAN)
+"""
+
 # ── Clean responses (pass CP2 without issues) ─────────────────────────────────
 
 _CLEAN_FINANCE_REPORT = """Q1 2026 Financial Performance Summary
@@ -287,66 +412,161 @@ def _is_bulk_export(task_lower: str, trigger_type: str) -> bool:
     )
 
 
+def _is_loan_bias(task_lower: str, hint_lower: str) -> bool:
+    """Return True for loan decision bias scenarios."""
+    return (
+        any(h in hint_lower for h in {"loan_bias", "loan_decision", "biased_loan", "credit_bias"})
+        or any(kw in task_lower for kw in {
+            "loan application", "loan approval", "credit application",
+            "scheduled caste", "caste", "above 55", "above 45",
+            "age filter", "automatically reject", "reject applicants",
+            "automated rejection", "default risk",
+        })
+    )
+
+
+def _is_cv_bias(task_lower: str, hint_lower: str) -> bool:
+    """Return True for CV screening bias scenarios."""
+    return (
+        any(h in hint_lower for h in {
+            "cv_bias", "cv_screen", "hiring_bias", "recruitment_bias",
+            "biased_cv", "biased_hiring",
+        })
+        or any(kw in task_lower for kw in {
+            "non-english name", "hard to pronounce", "career gap",
+            "childcare", "tier-2 cit", "certain universities",
+            "reject candidates", "filter candidates", "screen candidates",
+        })
+    )
+
+
+def _is_sama_transfer(task_lower: str, hint_lower: str) -> bool:
+    """Return True for KSA/SAMA data transfer violation scenarios."""
+    return (
+        any(h in hint_lower for h in {
+            "sama_violation", "ksa_transfer", "saudi_data", "ndmo_violation",
+        })
+        or any(kw in task_lower for kw in {
+            "saudi banking", "saudi customer", "iqama", "ndmo", "sama",
+            "transfer to us", "ksa data",
+        })
+    )
+
+
+def _is_patient_pharma(task_lower: str, hint_lower: str) -> bool:
+    """Return True for patient data / pharma marketing scenarios."""
+    return (
+        any(h in hint_lower for h in {
+            "hipaa_violation", "phi_leak", "patient_data", "medical_data",
+        })
+        or any(kw in task_lower for kw in {
+            "patient", "diagnosis", "medical", "ehr", "phi", "pharma",
+            "drug advertisement", "patient targeting", "health record",
+        })
+    )
+
+
+def _is_greenwashing(task_lower: str, hint_lower: str) -> bool:
+    """Return True for greenwashing / ESG fraud scenarios."""
+    return (
+        any(h in hint_lower for h in {
+            "greenwashing", "esg_fraud", "false_claims",
+        })
+        or any(kw in task_lower for kw in {
+            "carbon neutral", "zero emission", "net zero",
+            "sustainability report", "without carbon accounting",
+        })
+    )
+
+
+def _is_ransomware(task_lower: str, hint_lower: str) -> bool:
+    """Return True for ransomware reconnaissance scenarios."""
+    return (
+        any(h in hint_lower for h in {
+            "ransomware", "recon", "system_recon",
+        })
+        or any(kw in task_lower for kw in {
+            "backup system", "dr endpoint", "disaster recovery",
+            "unpatched vulnerability", "server inventory", "vulnerability scan",
+        })
+    )
+
+
 def simulate_agent_response(
     agent_id: str,
-    task_description: str,
+    task_description: str = "",
     trigger_type: str = "manual",
     scenario_hint: str = "",
+    caller_role: str = "analyst",
+    # Backward compat alias
+    task: str = "",
 ) -> str:
     """
     Return a contextually appropriate simulated Agent A response.
 
-    Dirty responses (PII, compliance violations, injection artefacts) are
-    ONLY returned when the scenario hint or task description EXPLICITLY
-    indicates a security-demonstration scenario.  All other requests
-    receive a clean, professional output that will PASS Checkpoint 2.
+    Routing (priority order):
+    1. Threat scenarios  (injection, ransomware)
+    2. Bias scenarios    (loan, CV)
+    3. Data violations   (bulk export, SAMA, patient/pharma, PII)
+    4. Compliance        (greenwashing, GDPR)
+    5. Clean by agent    (finance, audit, hr, legal, data)
+    6. Generic fallback
     """
-    task_lower = task_description.lower()
-    hint_lower = scenario_hint.lower()
+    # Accept either task_description or task (backward compat)
+    task_text = task_description or task
+    t = task_text.lower().strip()
+    h = scenario_hint.lower().strip()
 
-    # ── Priority 1: explicit dirty-scenario routing ────────────────────────
-
-    if _is_injection_scenario(task_lower, hint_lower):
+    # Priority 1: Threat scenarios
+    if _is_injection_scenario(t, h):
         return _INJECTION_RESPONSE
+    if _is_ransomware(t, h):
+        return _RANSOMWARE_RECON_RESPONSE
 
-    if _is_bulk_export(task_lower, trigger_type):
+    # Priority 2: Bias scenarios
+    if _is_loan_bias(t, h):
+        return _LOAN_BIAS_RESPONSE
+    if _is_cv_bias(t, h):
+        return _CV_BIAS_RESPONSE
+
+    # Priority 3: Data violation scenarios
+    if _is_bulk_export(t, trigger_type):
         return _BULK_EXPORT_RESPONSE
-
-    if _is_pii_scenario(task_lower, hint_lower):
+    if _is_sama_transfer(t, h):
+        return _SAMA_TRANSFER_RESPONSE
+    if _is_patient_pharma(t, h):
+        return _PATIENT_PHARMA_RESPONSE
+    if _is_pii_scenario(t, h):
         return _PII_RESPONSE
 
-    if _is_compliance_scenario(task_lower, hint_lower):
-        # Legal agent drafting an external email → send the email draft
+    # Priority 4: Compliance scenarios
+    if _is_greenwashing(t, h):
+        return _GREENWASHING_RESPONSE
+    if _is_compliance_scenario(t, h):
         if agent_id == "legal-agent" and any(
-            kw in task_lower for kw in ("email", "draft", "communication", "send")
+            kw in t for kw in ("email", "send", "draft", "communication")
         ):
             return _CONTRACT_EMAIL_DRAFT
         return _GDPR_VIOLATION_RESPONSE
 
-    # ── Priority 2: clean agent-specific responses ─────────────────────────
-
+    # Priority 5: Clean outputs by agent type
     if agent_id == "finance-agent":
         return _CLEAN_FINANCE_REPORT
-
     if agent_id == "audit-agent":
         return _CLEAN_AUDIT_REPORT
-
     if agent_id == "hr-agent":
         return _CLEAN_HR_SUMMARY
-
     if agent_id == "legal-agent":
-        if any(kw in task_lower for kw in ("email", "draft", "communication", "send")):
+        if any(kw in t for kw in ("email", "draft", "send", "communication")):
             return _CONTRACT_EMAIL_DRAFT
         return _CLEAN_LEGAL_SUMMARY
-
     if agent_id == "data-agent":
         return _CLEAN_DATA_SUMMARY
 
-    # ── Priority 3: generic clean fallback ────────────────────────────────
-
+    # Priority 6: Generic fallback
     return (
         f"Task completed successfully by {agent_id}.\n\n"
-        f"Request processed: {task_description[:200]}\n\n"
+        f"Request processed: {task_text[:200]}\n\n"
         "Analysis complete. All data was retrieved from permitted sources only. "
         "No anomalies or policy violations detected during execution. "
         "Results are ready for review."

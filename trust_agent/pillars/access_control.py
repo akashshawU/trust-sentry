@@ -672,17 +672,62 @@ RESOURCE_SYNONYMS: dict[str, list[str]] = {
 }
 
 
-def detect_resource(text: str) -> str:
+# ---------------------------------------------------------------------------
+# Foundation 2b — Knowledge request keywords (never access sensitive data)
+# ---------------------------------------------------------------------------
+
+KNOWLEDGE_KEYWORDS: list[str] = [
+    "summary of", "explain", "what is", "overview of", "describe",
+    "tell me", "how does", "define", "clause", "article", "section",
+    "requirement", "control", "framework", "standard", "policy",
+    "guideline", "regulation", "best practice", "iso", "nist",
+    "gdpr", "hipaa", "sox", "owasp", "dpdp", "pdpl", "eu ai act",
+    "compliance framework", "audit framework", "risk framework",
+]
+
+
+def detect_resource(text: str, ai_resource: str | None = None) -> str:
     """
     Auto-detect the canonical resource type from free-form task description text.
-    Uses substring matching against RESOURCE_SYNONYMS in order of specificity.
-    Falls back to 'general-data' when no synonym matches.
+
+    Priority:
+    1. Trust AI-detected resource when it is a valid canonical type
+    2. Check for knowledge request signals (→ approved-documents)
+    3. Pattern-match RESOURCE_SYNONYMS
+    4. Fall back to 'general-data'
     """
+    # Priority 1: trust AI result if it is a known canonical type
+    _valid_resources = {
+        "payroll-data", "financial-data", "employee-records", "client-records",
+        "audit-logs", "system-config", "patient-records", "contracts",
+        "approved-documents", "general-data",
+    }
+    if ai_resource and ai_resource in _valid_resources:
+        return ai_resource
+
     text_lower = text.lower()
+
+    # Priority 2: knowledge-request detection (no sensitive data accessed)
+    knowledge_count = sum(1 for kw in KNOWLEDGE_KEYWORDS if kw in text_lower)
+    if knowledge_count >= 2:
+        return "approved-documents"
+
+    # Single strong knowledge signal paired with a standard/framework keyword
+    if any(kw in text_lower for kw in ["summary of", "explain", "what is",
+                                        "overview of", "how does", "define",
+                                        "tell me about"]):
+        if any(std in text_lower for std in ["iso", "nist", "gdpr", "hipaa",
+                                              "sox", "owasp", "dpdp", "pdpl",
+                                              "regulation", "framework",
+                                              "standard", "policy", "clause"]):
+            return "approved-documents"
+
+    # Priority 3: pattern matching against synonym lists
     for resource, synonyms in RESOURCE_SYNONYMS.items():
         for synonym in synonyms:
             if synonym in text_lower:
                 return resource
+
     return "general-data"
 
 
