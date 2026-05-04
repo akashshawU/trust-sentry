@@ -15,9 +15,10 @@ venv/
 env/
 ENV/
 
-# Text files (except requirements.txt)
+# Text files (except deployment files)
 *.txt
 !requirements.txt
+!runtime.txt
 
 # Logs
 *.log
