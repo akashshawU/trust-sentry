@@ -53,8 +53,9 @@ _CRITICAL_RULES  = {
     "fairness_bias",
 }
 _ESCALATE_RULES  = {
-    "bulk_export_protection", "external_communication_approval",
-    "payment_approval", "requires_agent_approval",
+    # FIX 5: bulk_export and payment now BLOCK; only comms/approval use WARN
+    "external_communication_approval",
+    "requires_agent_approval",
 }
 _ACTION_RULES    = {"payroll_protection", "cross_domain_block", "config_change_block", "cross_person_data"}
 _WARN_RULES      = {"after_hours_flag"}
@@ -410,7 +411,8 @@ def _is_bulk(task: str, actions: list[dict]) -> bool:
 
 
 def _is_external(target: str) -> bool:
-    internal = {"@internal", "@company.com", "@uniqus.com", "@corp", "internal", ""}
+    # Note: empty string deliberately excluded — "" matches any string (false-positive bug)
+    internal = {"@internal", "@company.com", "@uniqus.com", "@corp", "internal"}
     t = target.lower()
     if not t:
         return False
@@ -472,9 +474,9 @@ def _make_final_decision(
         composite = min(composite, 25.0)
         return composite, "BLOCK"
 
-    # Rule 2: Escalation
+    # Rule 2: Escalation → WARN (FIX 5: ESCALATE removed)
     if escalation_rules_triggered:
-        return composite, "ESCALATE"
+        return composite, "WARN"
 
     # Rule 3: Score → decision (score and decision always match)
     if composite >= 85:
@@ -569,15 +571,15 @@ class AgentProxy:
         # ── Access control & identity ──────────────────────────────────────
         "payroll_protection":               {"description": "Payroll data requires HR Manager or above", "decision": "BLOCK", "framework": "Internal Policy"},
         "cross_person_data":                {"description": "Accessing another employee's personal data without management role", "decision": "BLOCK", "framework": "Internal Policy"},
-        "bulk_export_protection":           {"description": "Bulk data export requires Partner/Director approval", "decision": "ESCALATE", "framework": "Internal Policy"},
+        "bulk_export_protection":           {"description": "Bulk data export requires Partner/Director approval", "decision": "BLOCK", "framework": "Internal Policy"},
         "unknown_agent_block":              {"description": "Unregistered agents are blocked entirely", "decision": "BLOCK", "framework": "Internal Policy"},
         "unknown_caller_block":             {"description": "Unknown callers blocked from sensitive resources", "decision": "BLOCK", "framework": "Internal Policy"},
         "after_hours_flag":                 {"description": "Access outside business hours flagged", "decision": "WARN", "framework": "Internal Policy"},
         "cross_domain_block":               {"description": "Agents cannot access resources outside their domain", "decision": "BLOCK", "framework": "Internal Policy"},
-        "external_communication_approval":  {"description": "External communications require senior approval", "decision": "ESCALATE", "framework": "Internal Policy"},
-        "payment_approval":                 {"description": "Payment initiation requires CFO approval", "decision": "ESCALATE", "framework": "Internal Policy"},
+        "external_communication_approval":  {"description": "External communications require senior approval — flagged for review", "decision": "WARN", "framework": "Internal Policy"},
+        "payment_approval":                 {"description": "Payment initiation requires CFO approval", "decision": "BLOCK", "framework": "Internal Policy"},
         "config_change_block":              {"description": "Configuration changes restricted to Admin/CTO", "decision": "BLOCK", "framework": "Internal Policy"},
-        "requires_agent_approval":          {"description": "Resource requires senior approval for this agent type", "decision": "ESCALATE", "framework": "Internal Policy"},
+        "requires_agent_approval":          {"description": "Resource requires senior approval for this agent type — flagged for review", "decision": "WARN", "framework": "Internal Policy"},
         # ── Security threats ───────────────────────────────────────────────
         "injection_in_task":                {"description": "Prompt injection detected in agent task", "decision": "BLOCK", "framework": "OWASP LLM Top 10 2025"},
         "velocity_attack":                  {"description": "Abnormal request velocity (>10 req/60s) — possible DoS or scraping", "decision": "BLOCK", "framework": "OWASP LLM10"},
@@ -766,8 +768,9 @@ class AgentProxy:
             print(f"[Proxy] Definitive Tier-1 triggered: {_def_result.primary_violation}")
 
         # Knowledge requests get access score boost (reading docs/standards is always fine)
+        # FIX 1: raise access floor to 95 for knowledge — framework research is always permitted
         if is_knowledge:
-            access_score_ai = max(access_score_ai, 85.0)
+            access_score_ai = max(access_score_ai, 95.0)
             detected_resource = "approved-documents"
 
         _early_ai_data: dict = {
@@ -1031,30 +1034,36 @@ class AgentProxy:
                     "guardrail_rule": "config_change_block",
                 })
 
-            # Bulk export protection
+            # Bulk export protection — FIX 5: hard BLOCK (not escalate)
             is_bulk_act = (
                 action in ("export",) and _is_bulk(task_desc, [act])
                 or rc > 100
                 or _is_bulk(task_desc, [act])
             )
             if is_bulk_act and not action_blocked:
-                escalation_required = True
-                if escalate_to is None:
-                    escalate_to       = "partner"
-                    escalation_reason = "Bulk data export requires Partner or Director approval"
+                action_blocked = True   # FIX 5: bulk export is now a hard BLOCK
+                action_reason  = (
+                    f"Bulk data export blocked: resource='{resource}' — "
+                    "Partner/Director approval required before any bulk extraction"
+                )
                 guardrails_applied.append({
                     "rule_name": "bulk_export_protection", "triggered": True,
-                    "decision": "ESCALATE",
-                    "reason": "Bulk data export (>100 records or 'all' target) requires Partner/Director approval",
-                    "escalate_to": "partner",
+                    "decision": "BLOCK",
+                    "reason": (
+                        "Bulk data export (>100 records or 'all' target) blocked — "
+                        "Partner/Director approval required"
+                    ),
                 })
                 violations.append({
-                    "severity": "HIGH", "pillar": "compliance",
-                    "description": f"Bulk export attempted: resource='{resource}' — escalation required",
+                    "severity": "CRITICAL", "pillar": "compliance",
+                    "description": (
+                        f"Bulk export blocked: resource='{resource}' — "
+                        "unauthorised bulk data extraction attempt"
+                    ),
                     "guardrail_rule": "bulk_export_protection",
                 })
 
-            # External communication approval
+            # External communication approval — FIX 5: WARN (not ESCALATE)
             if action == "email_send" and _is_external(target):
                 escalation_required = True
                 if escalate_to is None:
@@ -1062,31 +1071,28 @@ class AgentProxy:
                     escalation_reason = "External communications require Partner or Senior Manager approval"
                 guardrails_applied.append({
                     "rule_name": "external_communication_approval", "triggered": True,
-                    "decision": "ESCALATE",
-                    "reason": f"External email to '{target}' requires senior approval",
+                    "decision": "WARN",
+                    "reason": f"External email to '{target}' flagged for senior review",
                     "escalate_to": "senior_manager",
                 })
                 violations.append({
                     "severity": "HIGH", "pillar": "compliance",
-                    "description": f"External communication to '{target}' without senior approval",
+                    "description": f"External communication to '{target}' — flagged for senior review",
                     "guardrail_rule": "external_communication_approval",
                 })
 
-            # Payment approval
+            # Payment approval — FIX 5: hard BLOCK (not escalate)
             if action == "payment_initiate":
-                escalation_required = True
-                if escalate_to is None:
-                    escalate_to       = "cfo"
-                    escalation_reason = "Payment initiation requires CFO approval regardless of role"
+                action_blocked = True   # FIX 5: payment without approval is BLOCK
+                action_reason  = "Payment initiation blocked — CFO approval required before any payment"
                 guardrails_applied.append({
                     "rule_name": "payment_approval", "triggered": True,
-                    "decision": "ESCALATE",
-                    "reason": "All payment initiations require CFO approval",
-                    "escalate_to": "cfo",
+                    "decision": "BLOCK",
+                    "reason": "Payment initiation blocked — all payments require CFO pre-approval",
                 })
                 violations.append({
-                    "severity": "HIGH", "pillar": "compliance",
-                    "description": "Payment initiation without CFO approval",
+                    "severity": "CRITICAL", "pillar": "compliance",
+                    "description": "Payment initiation without CFO approval — hard BLOCK",
                     "guardrail_rule": "payment_approval",
                 })
 
@@ -1116,7 +1122,7 @@ class AgentProxy:
                                 )
                             guardrails_applied.append({
                                 "rule_name": "requires_agent_approval", "triggered": True,
-                                "decision": "ESCALATE",
+                                "decision": "WARN",   # FIX 5: ESCALATE → WARN
                                 "reason": escalation_reason,
                                 "escalate_to": "partner",
                             })
@@ -1231,6 +1237,9 @@ class AgentProxy:
             )
             # Blend composite with rule_trust_score (60/40)
             blended = round((_composite_score * 0.60) + (rule_trust_score * 0.40), 1)
+            # FIX 1: knowledge requests with no critical/high violations deserve a minimum score
+            if is_knowledge and not any(v.get("severity") in ("CRITICAL", "HIGH") for v in violations):
+                blended = max(blended, 92.0)
             has_critical = any(v.get("guardrail_rule") in _CRITICAL_RULES for v in violations)
             trust_score  = min(blended, 15.0) if has_critical else blended
         else:
@@ -1386,11 +1395,11 @@ class AgentProxy:
             "IN_IFSC", "IN_GSTIN",
             # Gulf region PII — always actionable
             "UAE_EMIRATES_ID", "KSA_NATIONAL_ID", "QATAR_QID", "UAE_MOBILE",
+            "KSA_IBAN", "KSA_MOBILE",   # FIX 7: KSA-specific PII
             # Universal PII — personal emails and financial
             "PHONE_NUMBER", "CREDIT_CARD", "IBAN_CODE",
             "MEDICAL_LICENSE", "US_SSN",
-            # EMAIL_ADDRESS — privacy.py smart filter now excludes work emails;
-            # only personal domains (@gmail/@yahoo/@hotmail) reach here
+            # EMAIL_ADDRESS — always actionable (privacy.py now always redacts emails)
             "EMAIL_ADDRESS",
             # PERSON names — only at high confidence (see threshold below);
             # professional-context names (Dear Mr. X) excluded by privacy.py filter
@@ -1431,6 +1440,8 @@ class AgentProxy:
             if e.get("entity_type") in {
                 "IN_AADHAAR", "IN_PAN", "UAE_EMIRATES_ID",
                 "KSA_NATIONAL_ID", "US_SSN", "CREDIT_CARD",
+                "IBAN_CODE", "KSA_IBAN",
+                "EMAIL_ADDRESS", "PHONE_NUMBER", "IN_MOBILE", "KSA_MOBILE",
             }
         ]
 
@@ -1466,7 +1477,7 @@ class AgentProxy:
         explicit_violations = {
             fw: v_list for fw, v_list in comp_violations.items() if v_list
         }
-        compliance_issues = list(explicit_violations.keys())[:6]
+        compliance_issues: list = list(explicit_violations.keys())[:6]  # default: plain keys
         # Direct phrase check — certain phrases always constitute a GDPR BLOCK
         # regardless of what the AI compliance scorer returns.
         _GDPR_VIOLATION_PHRASES = [
@@ -1487,6 +1498,27 @@ class AgentProxy:
             or (comp_score < 30 and bool(explicit_violations))
         )
 
+        # FIX 3: when violated, replace plain-key list with structured dicts for CP2 card rendering
+        if compliance_violated:
+            _ci_detail: list[dict] = []
+            for fw, v_list in explicit_violations.items():
+                for viol in (v_list or []):
+                    _ci_detail.append({
+                        "framework":   fw.upper(),
+                        "description": str(viol),
+                        "severity":    "CRITICAL",
+                    })
+            if _direct_gdpr and not _ci_detail:
+                _ci_detail.append({
+                    "framework":   "GDPR / KSA PDPL",
+                    "description": (
+                        "Output contains explicit data retention, consent bypass, "
+                        "or data selling provisions violating Article 5/6/17"
+                    ),
+                    "severity": "CRITICAL",
+                })
+            compliance_issues = _ci_detail
+
         # ── 4. Over-disclosure detection ──────────────────────────────────
         _overdisclosure_kws = {
             "aadhaar", "pan:", "account number", "ifsc", "bank account",
@@ -1506,6 +1538,7 @@ class AgentProxy:
             "IN_AADHAAR", "IN_PAN", "UAE_EMIRATES_ID", "KSA_NATIONAL_ID",
             "US_SSN", "CREDIT_CARD", "IBAN_CODE", "PASSPORT", "IN_MOBILE",
             "MEDICAL_LICENSE", "UK_NHS", "IN_VOTER_ID", "IN_IFSC",
+            "EMAIL_ADDRESS", "PHONE_NUMBER", "KSA_IBAN", "KSA_MOBILE",  # FIX 2B + FIX 7
         }
         _pii_for_redact_check = [
             e for e in pii_result.entities_found
@@ -1639,6 +1672,17 @@ class AgentProxy:
             output_decision = "WARN"
             cp2_trust = max(0.0, cp2_trust - len(scope_violations) * 10)
 
+        # FIX 4: downgrade REDACT → ALLOW when no actual redaction occurred
+        # This happens when all detected entities were filtered by privacy.py's context rules
+        if output_decision == "REDACT" and pii_result.anonymized_text.strip() == output.strip():
+            output_decision    = "ALLOW"
+            approved_output    = output
+            redactions_applied = []
+            ai_out_reasoning   = (
+                "PII detected by initial scan but all entities are in permitted professional context. "
+                "Output is safe to deliver."
+            )
+
         cp2_trust = round(min(100.0, cp2_trust), 1)
         cp2_status = "GREEN" if cp2_trust >= 75 else ("AMBER" if cp2_trust >= 40 else "RED")
 
@@ -1668,6 +1712,8 @@ class AgentProxy:
             "ai_concerns":           ai_out_concerns,
             "ai_provider":           ai_out_provider,
             "ai_mock_mode":          _ai_mock_mode,
+            # FIX 4: hide output comparison when nothing was actually changed
+            "show_comparison":       output_decision not in ("ALLOW", "WARN"),
         }
 
         _SESSIONS[session_id]["cp2"]    = result
@@ -1737,9 +1783,9 @@ class AgentProxy:
                 composite = min(composite, 20.0)
                 return composite, "BLOCK"
 
-        # Rule 2: Hard escalations
+        # Rule 2: Hard escalations → WARN (FIX 5: ESCALATE removed)
         if hard_escalations:
-            return composite, "ESCALATE"
+            return composite, "WARN"
 
         # Rule 3: Score-based decisions — score and decision always consistent
         if composite >= 85:
@@ -1782,9 +1828,9 @@ class AgentProxy:
         if has_critical_rule:
             return "BLOCK", False, None
 
-        # ── 2. Escalation required ─────────────────────────────────────────
+        # ── 2. Escalation required → WARN (FIX 5: ESCALATE removed) ─────────
         if escalation_req:
-            return "ESCALATE", False, f"Pending approval from {escalate_to}"
+            return "WARN", True, f"Flagged for senior review by {escalate_to}"
 
         # ── 3. Mixed (some actions allowed, some blocked) — structural ─────
         if blocked_acts and allowed_acts:

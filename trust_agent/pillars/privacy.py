@@ -62,6 +62,8 @@ PII_SEVERITY_MAP: dict[str, dict] = {
     "PHONE_NUMBER":       {"penalty": 15, "region": "Global",      "severity": "medium"},
     "IN_MOBILE":          {"penalty": 15, "region": "India",       "severity": "medium"},
     "UAE_MOBILE":         {"penalty": 15, "region": "Middle East", "severity": "medium"},
+    "KSA_IBAN":           {"penalty": 25, "region": "Middle East", "severity": "high"},    # FIX 7
+    "KSA_MOBILE":         {"penalty": 15, "region": "Middle East", "severity": "medium"},  # FIX 7
     # ── Personal identifiers (lower penalty) ─────────────────────────────
     "PERSON":             {"penalty": 10, "region": "Global",      "severity": "low"},
     "NRP":                {"penalty": 10, "region": "Global",      "severity": "low"},
@@ -90,6 +92,7 @@ _ALWAYS_REDACT_TYPES: set[str] = {
     "IN_AADHAAR", "IN_PAN", "UAE_EMIRATES_ID", "KSA_NATIONAL_ID",
     "US_SSN", "CREDIT_CARD", "IBAN_CODE", "PASSPORT",
     "IN_PASSPORT", "UAE_PASSPORT", "KSA_PASSPORT", "MEDICAL_LICENSE",
+    "KSA_IBAN",  # FIX 7: KSA financial identifier
 }
 
 # Personal email domains — these are redacted; work/corporate domains are kept
@@ -137,6 +140,31 @@ _COMMON_FIRST_NAMES: frozenset[str] = frozenset({
     "thomas", "christopher", "daniel", "matthew", "emily",
     "jessica", "ashley", "amanda", "stephanie", "melissa",
 })
+
+
+def _is_false_positive_license(entity, text: str) -> bool:
+    """Return True when a US_DRIVER_LICENSE entity is a known false positive.
+
+    Presidio's driver-licence pattern fires on many date/quarter/code strings
+    like 'Q4 2025', 'FY24', 'H1 2026'. Filter them out before anonymization.
+    """
+    if entity.entity_type != "US_DRIVER_LICENSE":
+        return False
+    entity_text = text[entity.start:entity.end].strip()
+    false_positive_patterns = [
+        r"^Q[1-4]\s*\d{4}",      # Q4 2025
+        r"^Q[1-4]$",              # Q4
+        r"^\d{4}$",               # bare year
+        r"^[A-Z]{1,3}\d{1,4}$",  # short codes like H1, T3
+        r"^\d{1,2}[-/]\d{1,2}[-/]\d{2,4}",  # date-like
+        r"^FY\d{2,4}",            # FY25
+        r"^H[12]\s*\d{4}",        # H1 2026
+        r"^[A-Z]{3}\d{4}$",       # TXN1234 style
+    ]
+    for pattern in false_positive_patterns:
+        if re.match(pattern, entity_text, re.IGNORECASE):
+            return True
+    return entity.score < 0.6
 
 
 def _is_professional_context_person(text: str, start: int, window: int = 45) -> bool:
@@ -200,7 +228,7 @@ def _should_redact(
         return True
 
     if entity_type == "EMAIL_ADDRESS":
-        return _is_personal_email(text, start, end)
+        return True  # FIX 2B: always redact emails in agent output (work or personal)
 
     return True  # default: redact
 
@@ -302,6 +330,24 @@ UAE_MOBILE_PATTERN = PatternRecognizer(
     context=["uae mobile", "dubai number", "+971"],
 )
 
+# KSA — IBAN: SA + 22 digits (FIX 7)
+KSA_IBAN_PATTERN = PatternRecognizer(
+    supported_entity="KSA_IBAN",
+    patterns=[
+        Pattern("ksa_iban_pattern", r"\bSA[0-9]{22}\b", 0.95),
+    ],
+    context=["iban", "bank account", "account number", "sadad", "transfer"],
+)
+
+# KSA — Mobile: +966/00966/966 + 5XXXXXXXX (FIX 7)
+KSA_MOBILE_PATTERN = PatternRecognizer(
+    supported_entity="KSA_MOBILE",
+    patterns=[
+        Pattern("ksa_mobile_pattern", r"\b(\+966|00966|966)?[5][0-9]{8}\b", 0.80),
+    ],
+    context=["mobile", "phone", "contact", "whatsapp", "ksa", "saudi"],
+)
+
 # ---------------------------------------------------------------------------
 # Build Presidio AnalyzerEngine with full custom registry
 # ---------------------------------------------------------------------------
@@ -319,6 +365,8 @@ for _recognizer in [
     GSTIN_PATTERN,
     QATAR_QID_PATTERN,
     UAE_MOBILE_PATTERN,
+    KSA_IBAN_PATTERN,    # FIX 7
+    KSA_MOBILE_PATTERN,  # FIX 7
 ]:
     _registry.add_recognizer(_recognizer)
 
@@ -394,7 +442,8 @@ def analyze_and_anonymize(text: str, language: str = "en") -> PrivacyAnalysisRes
     # never contains spurious <PERSON> placeholders for org names or signatures.
     redact_results = [
         r for r in results
-        if _should_redact(r.entity_type, text, r.start, r.end, sig_start=_sig_start)
+        if not _is_false_positive_license(r, text)  # FIX 2A: filter false positives first
+        and _should_redact(r.entity_type, text, r.start, r.end, sig_start=_sig_start)
     ]
     anonymized = _anonymizer.anonymize(text=text, analyzer_results=redact_results)
 

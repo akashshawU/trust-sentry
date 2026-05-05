@@ -313,9 +313,70 @@ class HybridIntelligenceEngine:
 
     # ── KSA PDPL — Zero tolerance (score = 0) ────────────────────────────
     _KSA_PDPL_VIOLATIONS = [
-        "transfer saudi data without ndmo", "sell ksa personal data",
+        "transfer saudi data without ndmo",
+        "sell ksa personal data",
         "process sensitive ksa data without consent",
-        "bypass sama requirements", "transfer iqama data without",
+        "bypass sama requirements",
+        "transfer iqama data without",
+        "export saudi national id",
+        "transfer national ids without ndmo",
+        "pdpl article 29",
+        "bypass ndmo approval",
+        "ksa data without ndmo",
+        "saudi personal data without consent",
+        "transfer vision 2030 data without",
+        "data localisation violation",
+        "saudi data to",                    # covers "send saudi data to [foreign country]"
+        "national ids to london",
+        "sell saudi",
+        "share iqama without",
+    ]
+
+    # ── SAMA Cybersecurity Framework — Zero tolerance (score = 0) ────────
+    _SAMA_VIOLATIONS = [
+        "without sama approval",
+        "bypass sama",
+        "financial data without sama",
+        "banking data without approval",
+        "no cybersecurity framework",
+        "without nca controls",
+        "sama circular violation",
+        "bypass sama circular",
+        "no sama notification",
+        "without sama notification",
+        "sama non-compliance",
+        "bypass central bank",
+        "bypass saudi central bank",
+    ]
+
+    # ── SDAIA AI Governance — Zero tolerance (score = 0) ─────────────────
+    _SDAIA_AI_VIOLATIONS = [
+        "without sdaia registration",
+        "no ai risk assessment",
+        "no human oversight",
+        "automated decision without review",
+        "without ndmo notification",
+        "deploy ai without approval",
+        "no transparency ksa ai",
+        "sdaia registration not obtained",
+        "no sdaia",
+        "ministerial resolution 20686",
+        "high-risk ai without registration",
+        "ai without human oversight ksa",
+        "automated rejection without appeal",
+        "no candidate appeal mechanism",
+    ]
+
+    # ── NCA Essential Controls — High severity (score = 5) ───────────────
+    _NCA_VIOLATIONS = [
+        "without nca controls",
+        "bypass cybersecurity",
+        "cybersecurity violation ksa",
+        "essential controls not implemented",
+        "nca essential cybersecurity controls",
+        "bypass nca",
+        "no nca compliance",
+        "nca controls not applied",
     ]
 
     # ── HIPAA — PHI violations (score = 0) ───────────────────────────────
@@ -953,6 +1014,64 @@ class HybridIntelligenceEngine:
                 }]
                 result.reasoning = "KSA Personal Data Protection Law violation. Penalty: up to SAR 5M."
                 result.primary_violation = f"KSA_PDPL:{pat}"
+                return result
+
+        # ── SAMA Cybersecurity Framework ──────────────────────────────────
+        for pat in self._SAMA_VIOLATIONS:
+            if pat in tl:
+                result.is_definitive = True
+                result.scores = {"security": 0, "fairness": 90, "compliance": 0}
+                result.violations = [{
+                    "pillar": "compliance", "severity": "CRITICAL",
+                    "description": f"SAMA Cybersecurity Framework violation: '{pat}'",
+                    "guardrail_rule": "sama_absolute",
+                    "frameworks": ["SAMA Cybersecurity Framework 2017", "SAMA CSCF"],
+                    "tier": "DEFINITIVE_RULES",
+                }]
+                result.reasoning = (
+                    "SAMA Cybersecurity Framework violation. Saudi Central Bank regulatory breach — "
+                    "penalty: licence revocation and fines up to SAR 10M."
+                )
+                result.primary_violation = f"SAMA_VIOLATION:{pat}"
+                return result
+
+        # ── SDAIA AI Governance ───────────────────────────────────────────
+        for pat in self._SDAIA_AI_VIOLATIONS:
+            if pat in tl:
+                result.is_definitive = True
+                result.scores = {"security": 10, "fairness": 10, "compliance": 0}
+                result.violations = [{
+                    "pillar": "compliance", "severity": "CRITICAL",
+                    "description": f"SDAIA AI governance violation: '{pat}'",
+                    "guardrail_rule": "sdaia_ai_absolute",
+                    "frameworks": ["SDAIA AI Ethics Principles 2019", "ISO 42001:2023",
+                                   "Ministerial Resolution 20686"],
+                    "tier": "DEFINITIVE_RULES",
+                }]
+                result.reasoning = (
+                    "SDAIA AI governance violation. High-risk AI system deployed without mandatory "
+                    "SDAIA registration, risk assessment, or human oversight controls."
+                )
+                result.primary_violation = f"SDAIA_VIOLATION:{pat}"
+                return result
+
+        # ── NCA Essential Cybersecurity Controls ─────────────────────────
+        for pat in self._NCA_VIOLATIONS:
+            if pat in tl:
+                result.is_definitive = True
+                result.scores = {"security": 5, "fairness": 90, "compliance": 5}
+                result.violations = [{
+                    "pillar": "compliance", "severity": "HIGH",
+                    "description": f"NCA Essential Cybersecurity Controls violation: '{pat}'",
+                    "guardrail_rule": "nca_controls",
+                    "frameworks": ["NCA Essential Cybersecurity Controls (ECC-1:2018)"],
+                    "tier": "DEFINITIVE_RULES",
+                }]
+                result.reasoning = (
+                    "NCA Essential Cybersecurity Controls breach. Saudi National Cybersecurity Authority "
+                    "baseline requirements not met — mandatory for all government-linked entities."
+                )
+                result.primary_violation = f"NCA_VIOLATION:{pat}"
                 return result
 
         # ── HIPAA ─────────────────────────────────────────────────────────
