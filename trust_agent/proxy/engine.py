@@ -451,6 +451,37 @@ def _is_external(target: str) -> bool:
     return not any(i in t for i in internal)
 
 
+def _check_external_comm_rule(
+    task_description: str,
+    requested_actions: list,
+    trigger_type: str,
+) -> bool:
+    """
+    Text-based detection of external communication intent.
+    Fires regardless of whether requested_actions is populated,
+    so S08 WARN is guaranteed even when the dashboard sends 'actions' instead of 'requested_actions'.
+    """
+    task_lower = task_description.lower()
+    external_targets = [
+        "client cfo", "client ceo", "client director", "external cfo",
+        "external email", "send to client", "email to client", "send email",
+        "email the client", "notify client", "send to cfo", "email cfo",
+        "client contact", "external party", "send contract", "forward contract",
+        "send amendment", "email amendment", "hdfcbank", "@hdfcbank",
+        "hdfc bank", "external recipient",
+    ]
+    send_verbs = [
+        "send", "email", "forward", "dispatch", "notify", "share",
+        "transmit", "deliver",
+    ]
+    has_external_target = any(t in task_lower for t in external_targets)
+    has_send_verb       = any(v in task_lower for v in send_verbs)
+    # Also catch action-level email_send even if requested_actions is empty
+    action_types = [a.get("action", "") for a in (requested_actions or [])]
+    has_email_action = "email_send" in action_types
+    return (has_external_target and has_send_verb) or has_email_action
+
+
 def _build_reasoning_text(
     violations: list,
     ai_reasoning: str,
@@ -819,6 +850,10 @@ class AgentProxy:
                 v for v in _ai_violations
                 if v.get("guardrail_rule") != "nca_controls"
             ]
+
+        # ── External comm text-based detection (FIX 1: text-first, action-second) ──
+        # Fires even when dashboard sends 'actions' key instead of 'requested_actions'
+        _force_warn = _check_external_comm_rule(task_desc, raw_actions, trigger_type)
 
         _early_ai_data: dict = {
             "intent_score": security_score,
@@ -1353,6 +1388,32 @@ class AgentProxy:
             escalation_required, escalate_to,
             trust_score=trust_score,
         )
+
+        # ── FIX 1: External comm override — force WARN if text-based detection fired ─
+        # This runs AFTER _make_decision() so it catches cases where action list was
+        # missing (dashboard 'actions' vs 'requested_actions' key mismatch).
+        if _force_warn and decision in ("ALLOW", "ALLOW_WITH_RESTRICTIONS"):
+            decision = "WARN"
+            proceed  = True   # WARN = proceed with caution, not hard block
+            escalation_required = True
+            if escalate_to is None:
+                escalate_to = "senior_manager"
+            # Cap score into AMBER band so UI colours are consistent
+            trust_score = min(trust_score, 74.0)
+            # Add guardrail entry if not already present
+            _ext_rules = {g.get("rule_name") for g in guardrails_applied}
+            if "external_communication_approval" not in _ext_rules:
+                guardrails_applied.append({
+                    "rule_name": "external_communication_approval", "triggered": True,
+                    "decision": "WARN",
+                    "reason": "External communication detected in task description — requires senior review",
+                    "escalate_to": "senior_manager",
+                })
+                violations.append({
+                    "severity": "HIGH", "pillar": "compliance",
+                    "description": "External communication to client/external party — flagged for senior review",
+                    "guardrail_rule": "external_communication_approval",
+                })
 
         # ── Status from trust score ───────────────────────────────────────
         status = "GREEN" if trust_score >= 75 else ("AMBER" if trust_score >= 40 else "RED")
