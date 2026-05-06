@@ -373,7 +373,10 @@ class HybridIntelligenceEngine:
         "bypass cybersecurity",
         "cybersecurity violation ksa",
         "essential controls not implemented",
-        "nca essential cybersecurity controls",
+        # "nca essential cybersecurity controls" removed — too broad; matches legitimate audit refs
+        # e.g. "in accordance with NCA Essential Cybersecurity Controls" (false positive)
+        "nca ecc controls not implemented",
+        "nca ecc controls bypassed",
         "bypass nca",
         "no nca compliance",
         "nca controls not applied",
@@ -1056,8 +1059,21 @@ class HybridIntelligenceEngine:
                 return result
 
         # ── NCA Essential Cybersecurity Controls ─────────────────────────
+        # Audit/review context exempt: "in accordance with NCA ECC" is compliance,
+        # not a violation. Only fire when the task describes bypassing/ignoring NCA.
+        _NCA_AUDIT_EXEMPT = {
+            "in accordance with", "per nca", "following nca",
+            "review nca", "summarise", "summarize", "audit", "workpaper",
+            "gap analysis", "identify gaps", "assess nca", "evaluate nca",
+        }
+        _NCA_VIOLATION_CONTEXT = {"bypass", "without", "not applied", "not implemented",
+                                   "ignore nca", "skip nca", "nca non-compliant"}
         for pat in self._NCA_VIOLATIONS:
             if pat in tl:
+                _is_audit_ref  = any(ctx in tl for ctx in _NCA_AUDIT_EXEMPT)
+                _is_violation  = any(v in tl for v in _NCA_VIOLATION_CONTEXT)
+                if _is_audit_ref and not _is_violation:
+                    continue   # legitimate audit reference — not a violation
                 result.is_definitive = True
                 result.scores = {"security": 5, "fairness": 90, "compliance": 5}
                 result.violations = [{

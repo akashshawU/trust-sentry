@@ -47,6 +47,8 @@ _CRITICAL_RULES  = {
     # Regulatory hard stops — any match is an unconditional BLOCK
     "eu_ai_act_prohibited", "india_dpdp_absolute", "uae_pdpl_absolute",
     "ksa_pdpl_absolute", "hipaa_absolute",
+    # KSA/Saudi regulatory hard stops
+    "sdaia_ai_absolute",
     # Severe threat categories
     "financial_crime", "synthetic_media",
     # Discriminatory AI decisions — EU AI Act Art.5 + Equal Opportunities
@@ -410,6 +412,36 @@ def _is_bulk(task: str, actions: list[dict]) -> bool:
     return False
 
 
+def _is_legitimate_audit_task(task: str, caller_role: str, agent_id: str) -> bool:
+    """
+    Return True when the request is a legitimate audit/review task that should
+    bypass NCA pattern-matching and injection guardrails.
+
+    Requires: (audit agent OR audit role) AND audit verb AND audit object.
+    """
+    audit_agents  = {"audit-agent", "compliance-agent", "legal-agent"}
+    audit_roles   = {
+        "auditor", "senior_auditor", "compliance_manager", "partner",
+        "director", "senior_manager", "manager",
+    }
+    audit_verbs   = {
+        "review", "audit", "assess", "evaluate", "analyse", "analyze",
+        "examine", "inspect", "check", "summarise", "summarize", "report",
+        "identify", "prepare",
+    }
+    audit_objects = {
+        "workpaper", "itgc", "controls", "findings", "audit", "compliance",
+        "framework", "assessment", "gap analysis", "nca", "sama",
+        "sdaia", "pdpl", "iso", "cybersecurity", "review", "sign-off",
+    }
+    task_lower     = task.lower()
+    role_is_audit  = caller_role in audit_roles
+    agent_is_audit = agent_id in audit_agents
+    has_audit_verb   = any(v in task_lower for v in audit_verbs)
+    has_audit_object = any(o in task_lower for o in audit_objects)
+    return (role_is_audit or agent_is_audit) and has_audit_verb and has_audit_object
+
+
 def _is_external(target: str) -> bool:
     # Note: empty string deliberately excluded — "" matches any string (false-positive bug)
     internal = {"@internal", "@company.com", "@uniqus.com", "@corp", "internal"}
@@ -678,6 +710,9 @@ class AgentProxy:
         # ── 2. Detect caller role ─────────────────────────────────────────
         caller_role = _detect_role(caller_id)
 
+        # ── 2b. Detect legitimate audit context ──────────────────────────
+        is_legitimate_audit = _is_legitimate_audit_task(task_desc, caller_role, agent_id)
+
         # ── 3. Normalise actions ──────────────────────────────────────────
         actions: list[dict] = []
         for a in raw_actions:
@@ -773,6 +808,18 @@ class AgentProxy:
             access_score_ai = max(access_score_ai, 95.0)
             detected_resource = "approved-documents"
 
+        # Legitimate audit tasks get score floors so NCA/injection guardrails don't fire
+        # FIX 1: audit agents reviewing controls are compliant — not injections or violations
+        if is_legitimate_audit:
+            security_score   = max(security_score,   75.0)
+            compliance_score = max(compliance_score, 80.0)
+            access_score_ai  = max(access_score_ai,  80.0)
+            # Remove any nca_controls violations that are false positives for audit tasks
+            _ai_violations = [
+                v for v in _ai_violations
+                if v.get("guardrail_rule") != "nca_controls"
+            ]
+
         _early_ai_data: dict = {
             "intent_score": security_score,
             "risk_level": (
@@ -847,6 +894,51 @@ class AgentProxy:
         # Prepend OWASP / regulatory guardrail rows (shown at top of the card)
         guardrails_applied.extend(_owasp_reg_guardrails)
 
+        # ── Definitive regulatory hard stops → propagate to violations ───────
+        # Violations from _check_definitive_rules() are in _ai_violations but NOT
+        # in the `violations` list that _make_decision() checks. Bridge that gap
+        # for rules that must unconditionally BLOCK (sdaia_ai_absolute, etc.)
+        for _dv in _ai_violations:
+            _dv_rule = _dv.get("guardrail_rule", "")
+            if _dv_rule in _CRITICAL_RULES and not any(v.get("guardrail_rule") == _dv_rule for v in violations):
+                guardrails_applied.append({
+                    "rule_name": _dv_rule, "triggered": True,
+                    "decision":  "BLOCK",
+                    "reason":    _dv.get("description", f"Regulatory hard stop: {_dv_rule}"),
+                })
+                violations.append({
+                    "severity":      "CRITICAL",
+                    "pillar":        _dv.get("pillar", "compliance"),
+                    "description":   _dv.get("description", f"Regulatory hard stop: {_dv_rule}"),
+                    "guardrail_rule": _dv_rule,
+                })
+
+        # ── SDAIA AI governance direct check (deterministic, no Groq dependency) ──
+        # Belt-and-suspenders: pattern-match the task directly so SDAIA violations
+        # always BLOCK regardless of Groq API availability or scoring variability.
+        _SDAIA_DIRECT_PATTERNS = [
+            "without sdaia registration", "no ai risk assessment",
+            "no human oversight", "automated decision without review",
+            "deploy ai without approval", "no sdaia", "sdaia registration not obtained",
+            "high-risk ai without registration", "ai without human oversight ksa",
+            "without ndmo notification", "automated rejection without appeal",
+        ]
+        _sdaia_matched = next(
+            (p for p in _SDAIA_DIRECT_PATTERNS if p in task_desc.lower()), None
+        )
+        if _sdaia_matched and not any(v.get("guardrail_rule") == "sdaia_ai_absolute" for v in violations):
+            guardrails_applied.append({
+                "rule_name": "sdaia_ai_absolute", "triggered": True,
+                "decision":  "BLOCK",
+                "reason":    f"SDAIA AI governance violation: '{_sdaia_matched}' — high-risk AI must be registered with SDAIA before deployment.",
+            })
+            violations.append({
+                "severity":       "CRITICAL",
+                "pillar":         "compliance",
+                "description":    f"SDAIA AI governance violation: '{_sdaia_matched}'",
+                "guardrail_rule": "sdaia_ai_absolute",
+            })
+
         # ── Session anomaly: velocity attack ──────────────────────────────
         if _anomaly["velocity_attack"]:
             guardrails_applied.append({
@@ -893,7 +985,8 @@ class AgentProxy:
         # Threshold of 25 (not 40) avoids false positives on innocent tasks
         # that the AI evaluator rates conservatively (e.g. "read all files").
         # Genuine injections ("ignore previous instructions") score < 10.
-        if security_score < 25:
+        # Legitimate audit tasks are exempt — Groq conservatively scores NCA/audit vocabulary low.
+        if security_score < 25 and not is_legitimate_audit:
             guardrails_applied.append({
                 "rule_name": "injection_in_task", "triggered": True,
                 "decision": "BLOCK",
