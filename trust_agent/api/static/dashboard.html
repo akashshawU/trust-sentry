@@ -7,6 +7,10 @@
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=DM+Serif+Display:ital@0;1&display=swap" rel="stylesheet">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    * { font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; }
+    h1,h2,h3,h4,h5,h6,p,span,div,button,input,select,textarea,label,td,th {
+      font-family: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+    }
 
     :root {
       --u-purple-dark:   #522979;
@@ -506,15 +510,45 @@
     .next-redact     { background: #fef3c7;            color: #92400e; }
     .next-icon       { font-size: .9rem; flex-shrink: 0; margin-top: .05rem; }
 
-    /* ─── DECISION BADGE ─────────────────────────────────── */
+    /* ═══════════════════════════════════════════════════════
+       CANONICAL DECISION BADGE SYSTEM
+       These are the ONLY badge colour definitions.
+       Do NOT define badge colours anywhere else.
+    ═══════════════════════════════════════════════════════ */
     .decision-badge {
-      display: inline-block;
-      font-size: .72rem;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 3px 10px;
+      border-radius: 20px;
+      font-size: 11px;
       font-weight: 700;
-      padding: .25rem .7rem;
-      border-radius: 6px;
-      color: #fff;
-      margin-top: .4rem;
+      letter-spacing: 0.3px;
+      white-space: nowrap;
+      flex-shrink: 0;
+      line-height: 1.4;
+      font-family: 'Outfit', Arial, sans-serif;
+      min-width: 58px;
+      text-align: center;
+      border: none;
+      cursor: default;
+    }
+    /* ALLOW — green */
+    .badge-allow { background: #dcfce7 !important; color: #16a34a !important; }
+    /* BLOCK — red */
+    .badge-block { background: #fee2e2 !important; color: #dc2626 !important; }
+    /* REDACT — amber/gold */
+    .badge-redact { background: #fef3c7 !important; color: #b45309 !important; }
+    /* WARN — orange-amber (distinct from REDACT) */
+    .badge-warn { background: #fff7ed !important; color: #ea580c !important; }
+    /* ALLOW_WITH_RESTRICTIONS — blue */
+    .badge-allow-restrictions { background: #eff6ff !important; color: #1d4ed8 !important; }
+    /* NOT_REACHED / N/A */
+    .badge-not-reached { background: #f3f4f6 !important; color: #6b7280 !important; }
+    /* Badge arrow between dual badges */
+    .badge-arrow {
+      font-size: 12px; color: #9ca3af; font-weight: 400;
+      line-height: 1; flex-shrink: 0; margin: 0 2px;
     }
 
     /* ─── CHIPS ──────────────────────────────────────────── */
@@ -554,74 +588,69 @@
     }
 
     .scenario-card {
-      background: var(--u-bg);
-      border: 1px solid var(--u-border);
-      border-left: 4px solid var(--u-border);
-      border-radius: 8px;
-      padding: .55rem .65rem;
+      background: white;
+      border: 1.5px solid #e8e0f0;
+      border-left: 4px solid #e8e0f0;
+      border-radius: 10px;
+      padding: 14px 14px 10px 14px;
       cursor: pointer;
-      transition: transform .15s, box-shadow .15s, background .15s;
+      transition: all 0.15s ease;
+      font-family: 'Outfit', Arial, sans-serif;
       position: relative;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
     }
 
     .scenario-card:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 4px 14px rgba(82,41,121,.13);
-      background: var(--u-white);
+      border-color: #a78bcf;
+      box-shadow: 0 3px 12px rgba(82, 41, 121, 0.12);
+      transform: translateY(-1px);
     }
 
     .scenario-card.selected {
-      background: var(--u-purple-pale);
-      border-color: var(--u-purple-dark);
-      border-left-color: var(--u-purple-dark);
+      border-color: #522979;
+      border-left-color: #522979;
+      background: #f8f4fc;
     }
 
-    .sc-card-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: .25rem; }
-    .sc-num-badge { font-size: .6rem; font-weight: 700; color: var(--u-muted); background: #e9e4f4; padding: .1rem .4rem; border-radius: 4px; }
-    .scenario-card.selected .sc-num-badge { background: var(--u-purple-pale); color: var(--u-purple-dark); }
+    /* Scenario card sub-elements */
+    .scenario-number {
+      font-size: 10px; font-weight: 700; color: #9ca3af;
+      font-family: 'Outfit', Arial, sans-serif; letter-spacing: 0.5px;
+    }
+    .scenario-title {
+      font-size: 13px; font-weight: 700; color: #1a1a2e;
+      font-family: 'Outfit', Arial, sans-serif; line-height: 1.3; margin: 2px 0;
+    }
+    .scenario-description {
+      font-size: 11px; color: #6b7280;
+      font-family: 'Outfit', Arial, sans-serif; line-height: 1.4; margin-bottom: 8px;
+    }
+    .scenario-footer {
+      display: flex; align-items: center;
+      justify-content: space-between; margin-top: auto;
+    }
+    .scenario-badges {
+      display: flex; align-items: center; gap: 4px; flex-wrap: nowrap;
+    }
+    .scenario-sector {
+      font-size: 10px; color: #9ca3af;
+      font-family: 'Outfit', Arial, sans-serif;
+      text-align: right; flex-shrink: 1;
+      overflow: hidden; text-overflow: ellipsis;
+      white-space: nowrap; max-width: 100px;
+    }
+
+    /* Legacy: keep left-border accent classes */
+    .sc-border-green  { border-left-color: #16a34a !important; }
+    .sc-border-red    { border-left-color: #dc2626 !important; }
+    .sc-border-orange { border-left-color: #ea580c !important; }
+    .sc-border-amber  { border-left-color: #d97706 !important; }
+
+    /* Legacy Selected label */
     .sc-selected-label { font-size: .58rem; font-weight: 700; color: var(--u-purple-dark); background: var(--u-purple-pale); padding: .1rem .35rem; border-radius: 4px; display: none; }
     .scenario-card.selected .sc-selected-label { display: inline-block; }
-    .sc-card-name { font-size: .76rem; font-weight: 600; color: var(--u-black); margin-bottom: .1rem; line-height: 1.2; }
-    .sc-card-desc { font-size: .65rem; color: var(--u-muted); }
-    .sc-card-bottom {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-top: .45rem;
-      gap: .3rem;
-      flex-wrap: nowrap;
-      overflow: hidden;
-    }
-
-    .sc-sector-label {
-      font-size: .57rem;
-      color: var(--u-muted);
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      max-width: 60%;
-      text-align: right;
-    }
-
-    .sc-border-green  { border-left-color: #16a34a; }
-    .sc-border-red    { border-left-color: #dc2626; }
-    .sc-border-orange { border-left-color: #ea580c; }
-    .sc-border-amber  { border-left-color: #d97706; }
-
-    .sc-badge {
-      font-size: .6rem;
-      font-weight: 700;
-      padding: .18rem .5rem;
-      border-radius: 10px;
-      flex-shrink: 0;
-      color: #fff;
-      white-space: nowrap;
-      letter-spacing: .03em;
-    }
-    .sc-red    { background: #dc2626; }
-    .sc-green  { background: #16a34a; }
-    .sc-amber  { background: #d97706; }
-    .sc-purple { background: #ea580c; }
 
     /* ─── MINI SESSION LOG ────────────────────────────────── */
     .mini-log-item {
@@ -976,6 +1005,58 @@
                       border-left:8px solid #16a34a; }
     .flow-diagram-wrap { display:flex; align-items:center; gap:0; overflow-x:auto; }
     @media (max-width:900px) { .flow-diagram-wrap { transform-origin:left center; transform:scale(.85); } }
+
+    /* ═══════════════════════════════════════════════════════
+       CANONICAL FLOW DIAGRAM ARROWS — FIX 4
+    ═══════════════════════════════════════════════════════ */
+    .flow-arrow-container {
+      flex-shrink: 0; width: 52px;
+      display: flex; flex-direction: column;
+      align-items: center; gap: 3px; padding: 0;
+    }
+    .flow-arrow-top-label {
+      font-size: 9px; white-space: nowrap; font-weight: 600;
+      font-family: 'Outfit', Arial, sans-serif;
+      text-align: center; line-height: 1;
+    }
+    .flow-arrow-line-wrap {
+      position: relative; width: 100%; height: 10px;
+      display: flex; align-items: center;
+    }
+    .flow-arrow-line  { height: 2px; width: calc(100% - 7px); flex-shrink: 0; }
+    .flow-arrow-triangle {
+      width: 0; height: 0; border-style: solid;
+      border-width: 5px 0 5px 7px;
+      border-color: transparent transparent transparent currentColor;
+      flex-shrink: 0;
+    }
+    .flow-arrow-bottom-label {
+      font-size: 8px; white-space: nowrap; font-weight: 700;
+      font-family: 'Outfit', Arial, sans-serif;
+      color: #dc2626; text-align: center; line-height: 1;
+    }
+    /* Neutral (grey) variant */
+    .flow-arrow-neutral .flow-arrow-top-label    { color: #9ca3af; }
+    .flow-arrow-neutral .flow-arrow-line         { background: #d1d5db; }
+    .flow-arrow-neutral .flow-arrow-triangle     { color: #d1d5db; }
+    /* Green (ALLOW) variant */
+    .flow-arrow-green .flow-arrow-top-label      { color: #16a34a; }
+    .flow-arrow-green .flow-arrow-line           { background: #16a34a; }
+    .flow-arrow-green .flow-arrow-triangle       { color: #16a34a; }
+
+    /* ═══════════════════════════════════════════════════════
+       DECISION EXAMPLE CARDS (modal Tab 1)
+    ═══════════════════════════════════════════════════════ */
+    .decision-example-card {
+      border-radius: 8px; padding: 12px; border: 1px solid;
+      font-family: 'Outfit', Arial, sans-serif;
+    }
+    .card-allow  { background: #f0fdf4; border-color: #86efac; }
+    .card-block  { background: #fef2f2; border-color: #fca5a5; }
+    .card-redact { background: #fffbeb; border-color: #fcd34d; }
+    .card-warn   { background: #fff7ed; border-color: #fdba74; }
+    .example-when { font-size: 11px; color: #374151; margin-top: 8px; line-height: 1.5; }
+    .example-text { font-size: 11px; color: #374151; margin-top: 4px; line-height: 1.5; }
     .flow-step.cp-step { background: linear-gradient(135deg,#2d0a5e,#522979); border-color: #2d0a5e; }
     .flow-step.cp-step .flow-step-label { color: #fff; }
     .flow-step.cp-step .flow-step-sub { color: rgba(255,255,255,.75); }
@@ -1032,7 +1113,7 @@
     .decision-card { border-radius: 10px; border: 1px solid var(--u-border); display: flex; flex-direction: column; overflow: hidden; }
     .decision-card-top { height: 4px; }
     .decision-card-inner { padding: .75rem .9rem; flex: 1; }
-    .decision-badge-lg { display: inline-flex; align-items: center; gap: 5px; padding: 5px 14px; border-radius: 20px; font-size: .78rem; font-weight: 700; color: #fff; margin-bottom: 8px; }
+    .decision-badge-lg { display: inline-flex; align-items: center; gap: 5px; padding: 5px 14px; border-radius: 20px; font-size: .78rem; font-weight: 700; margin-bottom: 8px; }
     .decision-card-title { font-size: .85rem; font-weight: 700; color: var(--u-black); margin-bottom: 6px; }
     .decision-card-def { font-size: .75rem; color: var(--u-slate); line-height: 1.5; margin-bottom: 8px; }
     .dec-section-lbl { font-size: .67rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--u-muted); margin-bottom: 3px; margin-top: 8px; }
@@ -1046,7 +1127,7 @@
     .outcome-row { display: flex; align-items: baseline; gap: .6rem; font-size: .75rem; padding: .15rem 0; }
     .outcome-row-name { color: var(--u-black); font-weight: 500; }
     .outcome-row-why { font-size: .68rem; color: var(--u-muted); }
-    .outcome-row-badge { font-size: .6rem; font-weight: 700; padding: .14rem .45rem; border-radius: 8px; color: #fff; flex-shrink: 0; min-width: 62px; text-align: center; }
+    .outcome-row-badge { font-size: .6rem; font-weight: 700; padding: .14rem .45rem; border-radius: 8px; flex-shrink: 0; min-width: 62px; text-align: center; }
 
     /* ─── COMPLIANCE BADGE ───────────────────────────────── */
     .compliance-badge { font-size: .7rem; font-weight: 700; padding: .2rem .55rem; border-radius: 5px; }
@@ -1559,9 +1640,12 @@
           </div>
 
           <!-- Arrow 1 -->
-          <div class="flow-arrow">
-            <div class="arrow-label">intercepted</div>
-            <div class="arrow-line"><div class="arrow-head"></div></div>
+          <div class="flow-arrow-container flow-arrow-neutral">
+            <span class="flow-arrow-top-label">intercepted</span>
+            <div class="flow-arrow-line-wrap">
+              <div class="flow-arrow-line"></div>
+              <div class="flow-arrow-triangle"></div>
+            </div>
           </div>
 
           <!-- Step 2: CP1 -->
@@ -1573,10 +1657,13 @@
           </div>
 
           <!-- Arrow 2 (ALLOW above / BLOCK below) -->
-          <div class="flow-arrow flow-arrow-w">
-            <div class="allow-label">&#10003; ALLOW</div>
-            <div class="allow-line"><div class="allow-head"></div></div>
-            <div class="block-label">&#10007; BLOCK</div>
+          <div class="flow-arrow-container flow-arrow-green">
+            <span class="flow-arrow-top-label">✓ ALLOW</span>
+            <div class="flow-arrow-line-wrap">
+              <div class="flow-arrow-line"></div>
+              <div class="flow-arrow-triangle"></div>
+            </div>
+            <span class="flow-arrow-bottom-label">✗ BLOCK → stop</span>
           </div>
 
           <!-- Step 3: AI Agent -->
@@ -1588,9 +1675,12 @@
           </div>
 
           <!-- Arrow 3 -->
-          <div class="flow-arrow">
-            <div class="arrow-label">output</div>
-            <div class="arrow-line"><div class="arrow-head"></div></div>
+          <div class="flow-arrow-container flow-arrow-neutral">
+            <span class="flow-arrow-top-label">output</span>
+            <div class="flow-arrow-line-wrap">
+              <div class="flow-arrow-line"></div>
+              <div class="flow-arrow-triangle"></div>
+            </div>
           </div>
 
           <!-- Step 4: CP2 -->
@@ -1602,9 +1692,12 @@
           </div>
 
           <!-- Arrow 4 -->
-          <div class="flow-arrow">
-            <div class="allow-label">approved</div>
-            <div class="allow-line"><div class="allow-head"></div></div>
+          <div class="flow-arrow-container flow-arrow-green">
+            <span class="flow-arrow-top-label">approved</span>
+            <div class="flow-arrow-line-wrap">
+              <div class="flow-arrow-line"></div>
+              <div class="flow-arrow-triangle"></div>
+            </div>
           </div>
 
           <!-- Step 5: User Receives -->
@@ -1625,23 +1718,27 @@
           </div>
         </div>
 
-        <!-- 4 decision example cards -->
+        <!-- 4 decision example cards — canonical badge system -->
         <div style="margin-top:14px;display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;">
-          <div style="border-radius:8px;border:1.5px solid #86efac;overflow:hidden;">
-            <div style="background:#16a34a;padding:4px 8px;"><span style="color:white;font-size:10px;font-weight:700;">&#10003; ALLOW</span></div>
-            <div style="padding:8px;background:#f0fdf4;font-size:9px;color:#374151;line-height:1.5;"><strong>When:</strong> Intent clean, caller authorised, all guardrails pass.<br><strong>Example:</strong> Auditor reviews ITGC workpapers → Score 91 → Proceeds.</div>
+          <div class="decision-example-card card-allow">
+            <span class="decision-badge badge-allow">✓ ALLOW</span>
+            <div class="example-when"><strong>When:</strong> Intent clean, caller authorised, all guardrails pass.</div>
+            <div class="example-text"><strong>Example:</strong> Auditor reviews SNB Capital ITGC workpapers → Score 91 → Proceeds.</div>
           </div>
-          <div style="border-radius:8px;border:1.5px solid #fca5a5;overflow:hidden;">
-            <div style="background:#dc2626;padding:4px 8px;"><span style="color:white;font-size:10px;font-weight:700;">&#10007; BLOCK</span></div>
-            <div style="padding:8px;background:#fef2f2;font-size:9px;color:#374151;line-height:1.5;"><strong>When:</strong> Critical violation — injection, bias, regulatory hard stop.<br><strong>Example:</strong> Intern requests payroll → Score 18 → Stopped.</div>
+          <div class="decision-example-card card-block">
+            <span class="decision-badge badge-block">✗ BLOCK</span>
+            <div class="example-when"><strong>When:</strong> Critical violation — injection, bias, regulatory hard stop.</div>
+            <div class="example-text"><strong>Example:</strong> Intern requests payroll data → Score 15 → Stopped. Zero data accessed.</div>
           </div>
-          <div style="border-radius:8px;border:1.5px solid #fcd34d;overflow:hidden;">
-            <div style="background:#d97706;padding:4px 8px;"><span style="color:white;font-size:10px;font-weight:700;">&#9986; REDACT</span></div>
-            <div style="padding:8px;background:#fffbeb;font-size:9px;color:#374151;line-height:1.5;"><strong>When:</strong> CP2 only — PII found in output (Iqama, IBAN, ID).<br><strong>Example:</strong> HR report contains Iqama → Auto-removed → Clean report delivered.</div>
+          <div class="decision-example-card card-redact">
+            <span class="decision-badge badge-redact">✂ REDACT</span>
+            <div class="example-when"><strong>When:</strong> CP2 only — PII found in output (Iqama, IBAN, ID).</div>
+            <div class="example-text"><strong>Example:</strong> HR report contains Iqama numbers → Auto-removed → Clean report delivered.</div>
           </div>
-          <div style="border-radius:8px;border:1.5px solid #fdba74;overflow:hidden;">
-            <div style="background:#ea580c;padding:4px 8px;"><span style="color:white;font-size:10px;font-weight:700;">&#9888; WARN</span></div>
-            <div style="padding:8px;background:#fff7ed;font-size:9px;color:#374151;line-height:1.5;"><strong>When:</strong> Sensitive but not blocked — external comms, borderline scope.<br><strong>Example:</strong> Consultant emails contract to client CFO → Partner notified.</div>
+          <div class="decision-example-card card-warn">
+            <span class="decision-badge badge-warn">⚠ WARN</span>
+            <div class="example-when"><strong>When:</strong> Sensitive but not blocked — external comms, borderline scope.</div>
+            <div class="example-text"><strong>Example:</strong> Consultant emails contract to client CFO → Partner notified. Compliance logged.</div>
           </div>
         </div>
       </div>
@@ -1825,7 +1922,7 @@
         <div class="decision-card">
           <div class="decision-card-top" style="background:#16a34a;"></div>
           <div class="decision-card-inner">
-            <span class="decision-badge-lg" style="background:#16a34a;">&#10003; ALLOW</span>
+            <span class="decision-badge-lg badge-allow">✓ ALLOW</span>
             <div class="decision-card-title">Request Approved</div>
             <div class="decision-card-def">The request and/or output are safe, authorised, and within permitted scope. The interaction proceeds normally. The complete session is logged as ISO 42001 compliance evidence.</div>
             <div class="dec-section-lbl">When CP1 fires</div>
@@ -1842,7 +1939,7 @@
         <div class="decision-card">
           <div class="decision-card-top" style="background:#dc2626;"></div>
           <div class="decision-card-inner">
-            <span class="decision-badge-lg" style="background:#dc2626;">&#10007; BLOCK</span>
+            <span class="decision-badge-lg badge-block">✗ BLOCK</span>
             <div class="decision-card-title">Request Stopped</div>
             <div class="decision-card-def">A serious violation was detected. The AI agent is stopped completely. Nothing executes. No data is accessed. A full incident record is created with Audit ID, timestamp, caller identity, and violation evidence.</div>
             <div class="dec-section-lbl">When CP1 fires</div>
@@ -1859,7 +1956,7 @@
         <div class="decision-card">
           <div class="decision-card-top" style="background:#d97706;"></div>
           <div class="decision-card-inner">
-            <span class="decision-badge-lg" style="background:#d97706;">&#9986; REDACT</span>
+            <span class="decision-badge-lg badge-redact">✂ REDACT</span>
             <div class="decision-card-title">Output Cleaned</div>
             <div class="decision-card-def">The AI agent's output contains sensitive data that should not reach this user. Trust Sentry automatically identifies and removes the sensitive elements. The cleaned version is delivered. The original is preserved in the audit log.</div>
             <div class="dec-section-lbl">When CP1 fires</div>
@@ -1867,16 +1964,16 @@
             <div class="dec-section-lbl">When CP2 fires</div>
             <div class="decision-card-body">Critical identity documents found (Aadhaar, PAN, Emirates ID, SSN, credit card) &middot; Personal email addresses in wrong context &middot; AI confirms PII is sensitive after reviewing context</div>
             <div class="dec-section-lbl">Real example</div>
-            <div class="decision-card-example">HR manager requests performance summary. Agent pulls Aadhaar numbers from database. CP2 removes them. Clean report delivered. S03.</div>
+            <div class="decision-card-example">HR manager requests performance summary. Agent returns Iqama numbers in output. CP2 removes them automatically. Clean report delivered. S15.</div>
             <div style="margin-top:8px;"><span class="fw-chip">DPDP Act</span><span class="fw-chip">UAE PDPL</span><span class="fw-chip">GDPR</span><span class="fw-chip">HIPAA</span></div>
           </div>
         </div>
 
         <!-- WARN -->
         <div class="decision-card">
-          <div class="decision-card-top" style="background:#d97706;"></div>
+          <div class="decision-card-top" style="background:#ea580c;"></div>
           <div class="decision-card-inner">
-            <span class="decision-badge-lg" style="background:#d97706;">&#9888; WARN</span>
+            <span class="decision-badge-lg badge-warn">⚠ WARN</span>
             <div class="decision-card-title">Flagged for Review</div>
             <div class="decision-card-def">The request has been allowed to proceed but is flagged for senior review. Trust Sentry notifies the designated approver. The full interaction — task, output, caller identity, and Audit ID — is preserved with a timestamp and escalation reason.</div>
             <div class="dec-section-lbl">When CP1 fires</div>
@@ -1897,16 +1994,15 @@
     <!-- ── Tab 4: Scenario Outcomes ───────────────────────────── -->
     <div class="how-tab-panel" id="tab-outcomes">
 
-      <!-- Financial Services -->
+      <!-- Financial Services — KSA -->
       <div class="outcome-sector">
-        <div class="outcome-sector-title">&#128201; Financial Services</div>
+        <div class="outcome-sector-title">&#128201; Financial Services — KSA</div>
         <div class="outcome-rows">
-          <div class="outcome-row"><span class="outcome-row-badge" style="background:#16a34a;">ALLOW</span><span class="outcome-row-name">S11 &middot; SNB Capital ITGC Audit</span><span class="outcome-row-why">— Authorised auditor, NCA controls review</span></div>
-          <div class="outcome-row"><span class="outcome-row-badge" style="background:#dc2626;">BLOCK</span><span class="outcome-row-name">S05 &middot; SAMA Loan Bias</span><span class="outcome-row-why">— Nationality + age discrimination (SAMA circular)</span></div>
-          <div class="outcome-row"><span class="outcome-row-badge" style="background:#dc2626;">BLOCK</span><span class="outcome-row-name">S09 &middot; GCC Cross-Border Transfer</span><span class="outcome-row-why">— UAE PDPL and KSA PDPL violated</span></div>
-          <div class="outcome-row"><span class="outcome-row-badge" style="background:#dc2626;">BLOCK</span><span class="outcome-row-name">Riyadh Bank Data Transfer</span><span class="outcome-row-why">— Iqama + KSA IBAN without NDMO approval</span></div>
-          <div class="outcome-row"><span class="outcome-row-badge" style="background:#dc2626;">BLOCK</span><span class="outcome-row-name">S14 &middot; Vision 2030 Data Export</span><span class="outcome-row-why">— 128K National IDs to London, no NDMO consent</span></div>
-          <div class="outcome-row"><span class="outcome-row-badge" style="background:#16a34a;">ALLOW</span><span class="outcome-row-name">S10 &middot; Finance Report — Clean</span><span class="outcome-row-why">— Finance manager, authorised board report</span></div>
+          <div class="outcome-row"><span class="outcome-row-badge badge-allow">✓ ALLOW</span><span class="outcome-row-name">S11 &middot; SNB Capital ITGC Audit</span><span class="outcome-row-why">— Authorised auditor, NCA controls review</span></div>
+          <div class="outcome-row"><span class="outcome-row-badge badge-block">✗ BLOCK</span><span class="outcome-row-name">S05 &middot; SAMA Biased Loan Decision</span><span class="outcome-row-why">— Age + nationality discrimination, SAMA circular violated</span></div>
+          <div class="outcome-row"><span class="outcome-row-badge badge-block">✗ BLOCK</span><span class="outcome-row-name">S09 &middot; Riyadh Bank Data Transfer</span><span class="outcome-row-why">— Iqama + KSA IBAN without NDMO approval</span></div>
+          <div class="outcome-row"><span class="outcome-row-badge badge-block">✗ BLOCK</span><span class="outcome-row-name">S13 &middot; SDAIA AI Framework Breach</span><span class="outcome-row-why">— AI deployed without SDAIA registration or human oversight</span></div>
+          <div class="outcome-row"><span class="outcome-row-badge badge-allow">✓ ALLOW</span><span class="outcome-row-name">S10 &middot; SAMA Compliance Report</span><span class="outcome-row-why">— Finance manager, authorised board report</span></div>
         </div>
       </div>
 
@@ -1914,10 +2010,9 @@
       <div class="outcome-sector">
         <div class="outcome-sector-title">&#128104;&#8205;&#128187; HR &amp; Recruitment</div>
         <div class="outcome-rows">
-          <div class="outcome-row"><span class="outcome-row-badge" style="background:#dc2626;">BLOCK</span><span class="outcome-row-name">S02 &middot; Intern Payroll Request</span><span class="outcome-row-why">— Analyst cannot access payroll data</span></div>
-          <div class="outcome-row"><span class="outcome-row-badge" style="background:#d97706;">REDACT</span><span class="outcome-row-name">S03 &middot; HR Performance Report</span><span class="outcome-row-why">— Clean request but Iqama in output</span></div>
-          <div class="outcome-row"><span class="outcome-row-badge" style="background:#dc2626;">BLOCK</span><span class="outcome-row-name">S12 &middot; Biased CV Screening</span><span class="outcome-row-why">— Gender and name discrimination</span></div>
-          <div class="outcome-row"><span class="outcome-row-badge" style="background:#16a34a;">ALLOW</span><span class="outcome-row-name">Legitimate HR Report</span><span class="outcome-row-why">— HR manager generating permitted report</span></div>
+          <div class="outcome-row"><span class="outcome-row-badge badge-block">✗ BLOCK</span><span class="outcome-row-name">S02 &middot; Intern Payroll Request</span><span class="outcome-row-why">— Analyst role cannot access payroll data</span></div>
+          <div class="outcome-row"><span class="outcome-row-badge badge-allow">✓ ALLOW</span><span style="color:#9ca3af;font-size:10px;">→</span><span class="outcome-row-badge badge-redact">✂ REDACT</span><span class="outcome-row-name">S15 &middot; KSA HR Performance Report</span><span class="outcome-row-why">— CP1 clean, CP2 removes Iqama numbers</span></div>
+          <div class="outcome-row"><span class="outcome-row-badge badge-block">✗ BLOCK</span><span class="outcome-row-name">S12 &middot; Biased CV Screening</span><span class="outcome-row-why">— Gender and name discrimination in hiring</span></div>
         </div>
       </div>
 
@@ -1925,35 +2020,18 @@
       <div class="outcome-sector">
         <div class="outcome-sector-title">&#9878; Legal &amp; Compliance</div>
         <div class="outcome-rows">
-          <div class="outcome-row"><span class="outcome-row-badge" style="background:#d97706;">WARN</span><span class="outcome-row-name">S08 &middot; Contract Email to Client</span><span class="outcome-row-why">— External communication flagged for Senior Manager review</span></div>
-          <div class="outcome-row"><span class="outcome-row-badge" style="background:#dc2626;">BLOCK</span><span class="outcome-row-name">S04 &middot; GDPR Non-Compliant Draft</span><span class="outcome-row-why">— Output violates data retention rules</span></div>
+          <div class="outcome-row"><span class="outcome-row-badge badge-allow">✓ ALLOW</span><span style="color:#9ca3af;font-size:10px;">→</span><span class="outcome-row-badge badge-block">✗ BLOCK</span><span class="outcome-row-name">S04 &middot; GDPR Non-Compliant Draft</span><span class="outcome-row-why">— CP2 blocks output violating data retention rules</span></div>
+          <div class="outcome-row"><span class="outcome-row-badge badge-warn">⚠ WARN</span><span class="outcome-row-name">S08 &middot; Contract Email to Client</span><span class="outcome-row-why">— External comms flagged for Senior Manager review</span></div>
         </div>
       </div>
 
-      <!-- Cybersecurity — KSA -->
+      <!-- Cybersecurity -->
       <div class="outcome-sector">
-        <div class="outcome-sector-title">&#128737; Cybersecurity &amp; AI Governance — KSA</div>
+        <div class="outcome-sector-title">&#128737; Cybersecurity</div>
         <div class="outcome-rows">
-          <div class="outcome-row"><span class="outcome-row-badge" style="background:#dc2626;">BLOCK</span><span class="outcome-row-name">S06 &middot; Formal Injection Attack</span><span class="outcome-row-why">— Zero keywords — AI catches intent only</span></div>
-          <div class="outcome-row"><span class="outcome-row-badge" style="background:#dc2626;">BLOCK</span><span class="outcome-row-name">S07 &middot; Autonomous Bulk Export</span><span class="outcome-row-why">— Unknown caller, bulk data, 2am trigger</span></div>
-          <div class="outcome-row"><span class="outcome-row-badge" style="background:#dc2626;">BLOCK</span><span class="outcome-row-name">S13 &middot; SDAIA AI Governance Breach</span><span class="outcome-row-why">— 4,847 automated decisions without SDAIA registration</span></div>
-        </div>
-      </div>
-
-      <!-- Healthcare -->
-      <div class="outcome-sector">
-        <div class="outcome-sector-title">&#128138; Healthcare</div>
-        <div class="outcome-rows">
-          <div class="outcome-row"><span class="outcome-row-badge" style="background:#dc2626;">BLOCK</span><span class="outcome-row-name">Patient Data to Pharma</span><span class="outcome-row-why">— PHI shared for commercial purpose</span></div>
-          <div class="outcome-row"><span class="outcome-row-badge" style="background:#dc2626;">BLOCK</span><span class="outcome-row-name">Clinical AI No Oversight</span><span class="outcome-row-why">— No human review, high-risk AI</span></div>
-        </div>
-      </div>
-
-      <!-- ESG -->
-      <div class="outcome-sector">
-        <div class="outcome-sector-title">&#127807; ESG</div>
-        <div class="outcome-rows">
-          <div class="outcome-row"><span class="outcome-row-badge" style="background:#dc2626;">BLOCK</span><span class="outcome-row-name">Greenwashing Report</span><span class="outcome-row-why">— False sustainability claims detected</span></div>
+          <div class="outcome-row"><span class="outcome-row-badge badge-block">✗ BLOCK</span><span class="outcome-row-name">S06 &middot; Formal Injection Attack</span><span class="outcome-row-why">— No keywords — AI catches social-engineering intent only</span></div>
+          <div class="outcome-row"><span class="outcome-row-badge badge-block">✗ BLOCK</span><span class="outcome-row-name">S07 &middot; Autonomous Bulk Export</span><span class="outcome-row-why">— Unknown caller, 47K records, 2am scheduled trigger</span></div>
+          <div class="outcome-row"><span class="outcome-row-badge badge-block">✗ BLOCK</span><span class="outcome-row-name">S14 &middot; Vision 2030 Data Export</span><span class="outcome-row-why">— 128K National IDs to London without NDMO approval</span></div>
         </div>
       </div>
 
@@ -1961,8 +2039,8 @@
       <div class="outcome-sector">
         <div class="outcome-sector-title">&#9989; Clean Cases</div>
         <div class="outcome-rows">
-          <div class="outcome-row"><span class="outcome-row-badge" style="background:#16a34a;">ALLOW</span><span class="outcome-row-name">S01 &middot; ISO 27001 Research</span><span class="outcome-row-why">— Knowledge request, no data access</span></div>
-          <div class="outcome-row"><span class="outcome-row-badge" style="background:#16a34a;">ALLOW</span><span class="outcome-row-name">Partner Full Access</span><span class="outcome-row-why">— Senior partner, all resources permitted</span></div>
+          <div class="outcome-row"><span class="outcome-row-badge badge-allow">✓ ALLOW</span><span class="outcome-row-name">S01 &middot; ISO 42001 Research</span><span class="outcome-row-why">— Knowledge request, no data access required</span></div>
+          <div class="outcome-row"><span class="outcome-row-badge badge-allow">✓ ALLOW</span><span class="outcome-row-name">S11 &middot; SNB ITGC Audit</span><span class="outcome-row-why">— Authorised auditor reviewing ITGC workpapers</span></div>
         </div>
       </div>
 
@@ -2051,22 +2129,21 @@ function buildScenarios() {
     list.innerHTML = '<div class="empty-state">No scenarios in this sector.</div>';
     return;
   }
-  list.innerHTML = '<div class="scenario-grid">' + visible.map(s => `
+  list.innerHTML = '<div class="scenario-grid">' + visible.map(s => {
+    const badgesHtml = s.badge2
+      ? `${getDecisionBadge(s.badge)}<span class="badge-arrow">→</span>${getDecisionBadge(s.badge2)}`
+      : getDecisionBadge(s.badge);
+    return `
     <div class="scenario-card ${s.borderCls}" id="sc-card-${s.key}" onclick="loadScenario('${s.key}')">
-      <div class="sc-card-top">
-        <span class="sc-num-badge">S${String(s.n).padStart(2,'0')}</span>
-        <span class="sc-selected-label">Selected</span>
+      <div class="scenario-number">S${String(s.n).padStart(2,'0')} <span class="sc-selected-label">· Selected</span></div>
+      <div class="scenario-title">${s.name}</div>
+      <div class="scenario-description">${s.desc}</div>
+      <div class="scenario-footer">
+        <div class="scenario-badges">${badgesHtml}</div>
+        <div class="scenario-sector">${s.sector}</div>
       </div>
-      <div class="sc-card-name">${s.name}</div>
-      <div class="sc-card-desc">${s.desc}</div>
-      <div class="sc-card-bottom">
-        ${s.badge2
-          ? `<span class="sc-badge sc-green">${s.badge}</span><span style="font-size:.7rem;color:var(--u-muted);margin:0 2px;">&#8594;</span><span class="sc-badge ${s.cls}">${s.badge2}</span>`
-          : `<span class="sc-badge ${s.cls}">${s.badge}</span>`}
-        <span class="sc-sector-label">${s.sector}</span>
-      </div>
-    </div>
-  `).join('') + '</div>';
+    </div>`;
+  }).join('') + '</div>';
 }
 
 function loadScenario(key) {
@@ -2362,9 +2439,40 @@ function _decStyle(d) {
     BLOCK:                   { bg:'#dc2626', text:'#fff' },
     ESCALATE:                { bg:'#ea580c', text:'#fff' },
     REDACT:                  { bg:'#d97706', text:'#fff' },
-    WARN:                    { bg:'#d97706', text:'#fff' },
+    WARN:                    { bg:'#ea580c', text:'#fff' },
   };
   return m[d] || { bg:'#6b7280', text:'#fff' };
+}
+
+// ═══════════════════════════════════════════ CANONICAL BADGE
+// Single source of truth for all decision badge HTML.
+// Used in scenario cards, modal tabs, CP1/CP2 results, session log.
+function getDecisionBadge(decision) {
+  if (!decision) return '';
+  const d = decision.toString().toUpperCase().trim().replace(/ /g, '_');
+  const labels = {
+    'ALLOW':                    '✓ ALLOW',
+    'BLOCK':                    '✗ BLOCK',
+    'REDACT':                   '✂ REDACT',
+    'WARN':                     '⚠ WARN',
+    'ALLOW_WITH_RESTRICTIONS':  '~ RESTRICTED',
+    'NOT_REACHED':              '— N/A',
+    'ESCALATE':                 '⚠ WARN',   // legacy → map to WARN
+    '—':                        '— N/A',
+  };
+  const classes = {
+    'ALLOW':                    'badge-allow',
+    'BLOCK':                    'badge-block',
+    'REDACT':                   'badge-redact',
+    'WARN':                     'badge-warn',
+    'ALLOW_WITH_RESTRICTIONS':  'badge-allow-restrictions',
+    'NOT_REACHED':              'badge-not-reached',
+    'ESCALATE':                 'badge-warn',
+    '—':                        'badge-not-reached',
+  };
+  const label = labels[d] || d;
+  const cls   = classes[d] || 'badge-not-reached';
+  return `<span class="decision-badge ${cls}">${label}</span>`;
 }
 
 function _scoreColor(s) {
